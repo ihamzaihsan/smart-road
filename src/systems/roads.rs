@@ -1,11 +1,13 @@
 use bevy::prelude::*;
+use crate::resources::RoadConfig;
 
 /// Startup system: create road geometry and spawn visual entities.
-pub fn setup_roads(mut commands: Commands) {
+/// Uses the `RoadConfig` resource for lane width, dash length/gap, and lanes per direction.
+pub fn setup_roads(mut commands: Commands, config: Res<RoadConfig>) {
     // Configuration for the intersection
-    let world_size = 800.0f32;
-    let lane_width = 30.0f32; // width per lane
-    let lanes_per_direction = 3usize; // 3 lanes for each direction
+    let world_size = 800.0f32; // overall viewport/world size (still constant here)
+    let lane_width = config.lane_width; // width per lane (from RoadConfig)
+    let lanes_per_direction = config.num_lanes; // lanes per direction (assumption: num_lanes is per-approach)
     let total_lanes = lanes_per_direction * 2; // both directions
     let road_width = lane_width * total_lanes as f32; // total road width
 
@@ -42,8 +44,8 @@ pub fn setup_roads(mut commands: Commands) {
     });
 
     // Lane markings: draw dashed separators between each lane, but skip dashes inside the central intersection
-    let dash_len = 20.0f32;
-    let gap = 15.0f32;
+    let dash_len = config.dash_length;
+    let gap = config.dash_gap;
     let intersection_half = road_width / 2.0; // half-size of the central square where roads cross
 
     // Compute left edge and lane centers (from left to right)
