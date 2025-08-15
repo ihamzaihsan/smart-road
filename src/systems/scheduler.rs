@@ -1,5 +1,8 @@
-// Intersection scheduler systems - placeholder
+use bevy::prelude::*;
 
-pub fn schedule_system() {
-    // placeholder
+/// Intersection scheduler / reservation algorithm (stub).
+/// Keep this file small and testable: complex logic should be pure functions in util/.
+
+pub fn scheduler_system() {
+    // stub
 }
