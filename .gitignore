@@ -1,0 +1,11 @@
+# Rust
+/target
+**/*.rs.bk
+**/*.swp
+Cargo.lock
+
+# assets
+/assets/
+
+# vscode
+.vscode/
