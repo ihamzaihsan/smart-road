@@ -1,12 +1,23 @@
 use bevy::prelude::*;
-use smart_road::resources::RoadConfig;
-use smart_road::systems::roads::setup_roads;
+use smart_road::resources::{RoadConfig, SpawnManager, AutoSpawnTimer, load_vehicle_assets};
+use smart_road::systems::{
+    roads::setup_roads,
+    vehicles::{handle_automatic_spawning, move_vehicles},
+    cleanup::cleanup_finished_vehicles,
+};
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .insert_resource(RoadConfig::default())
-        .add_systems(Startup, (setup_camera, setup_roads))
+        .insert_resource(SpawnManager::default())
+        .insert_resource(AutoSpawnTimer::default())
+        .add_systems(Startup, (setup_camera, setup_roads, load_vehicle_assets))
+        .add_systems(Update, (
+            handle_automatic_spawning,
+            move_vehicles,
+            cleanup_finished_vehicles,
+        ))
         .run();
 }
 
