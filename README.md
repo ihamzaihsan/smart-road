@@ -22,24 +22,25 @@ cargo build --release
 cargo run --bin visual_sim
 ```
 
-## Automatic Traffic Simulation
+## Manual Vehicle Spawning Controls
 
-The smart-road simulator now runs **completely automatically** without requiring user input:
+The smart-road simulator uses **keyboard-controlled vehicle spawning**:
 
-- **Automatic Vehicle Spawning**: Vehicles spawn automatically every 1-3 seconds from random directions
-- **Random Direction Selection**: Each spawn randomly selects from North, South, East, or West directions
-- **Random Lane Selection**: Vehicles spawn in random lanes within their chosen direction
-- **Random Car Sprites**: Each vehicle gets a randomly selected car sprite from the assets directory
-- **Continuous Operation**: The simulation runs continuously, creating realistic traffic flow
+- **Arrow Up**: Spawn vehicle from south moving north (random car sprite, fixed lane)
+- **Arrow Down**: Spawn vehicle from north moving south (random car sprite, fixed lane)
+- **Arrow Right**: Spawn vehicle from west moving east (random car sprite, fixed lane)
+- **Arrow Left**: Spawn vehicle from east moving west (random car sprite, fixed lane)
+- **Manual Control**: Vehicles only appear when you actively press arrow keys
+- **No Automatic Spawning**: No background spawning - complete user control
 
 ## Features Implemented
 
 ✅ **Road Intersection Rendering**: Procedural cross-intersection with lane markings
-✅ **Automatic Vehicle Spawning**: Timer-based automatic spawning system (no user input required)
-✅ **Random Direction Selection**: Vehicles spawn from randomly selected directions (North/South/East/West)
-✅ **Configurable Spawn Timing**: Automatic spawning every 1-3 seconds with random intervals
+✅ **Keyboard-Controlled Vehicle Spawning**: Manual spawning system using arrow keys
+✅ **Fixed Lane Positioning**: Keyboard spawning uses deterministic lane selection for consistent behavior
 ✅ **Car Sprite Rendering**: Uses actual car images from assets/ directory (Car.png, Audi.png, Mini_van.png, taxi.png, Police.png)
-✅ **Random Lane Selection**: Vehicles spawn in random lanes within their direction
+✅ **Random Car Sprite Selection**: Each spawned vehicle gets a randomly selected car sprite for visual variety
+✅ **Larger Vehicle Size**: Vehicles rendered at 60x40 pixels for better visibility
 ✅ **Vehicle Rotation**: Car sprites are properly rotated based on movement direction
 ✅ **Vehicle Movement**: Vehicles move in their assigned direction with realistic physics
 ✅ **Collision Prevention**: Prevents vehicles from spawning on top of each other
@@ -51,4 +52,4 @@ The smart-road simulator now runs **completely automatically** without requiring
 - Add vehicle route following (left/right turns)
 - Implement collision detection between moving vehicles
 - Add statistics tracking and HUD display
-- Add manual control toggle (to switch between automatic and manual spawning)
+- Add optional automatic spawning toggle (to switch between manual and automatic modes)

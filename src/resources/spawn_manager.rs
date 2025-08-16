@@ -118,20 +118,19 @@ pub struct AutoSpawnTimer {
 impl Default for AutoSpawnTimer {
     fn default() -> Self {
         Self {
-            timer: Timer::from_seconds(2.0, TimerMode::Once),
-            min_interval: 1.0,
-            max_interval: 3.0,
+            timer: Timer::from_seconds(1.0, TimerMode::Once), // Fixed 1-second initial delay
+            min_interval: 1.0,  // Fixed 1-second interval
+            max_interval: 1.0,  // Fixed 1-second interval (same as min)
             enabled: true,
         }
     }
 }
 
 impl AutoSpawnTimer {
-    /// Reset the timer with a new random interval
-    pub fn reset_with_random_interval(&mut self) {
-        let mut rng = rand::thread_rng();
-        let interval = rng.gen_range(self.min_interval..=self.max_interval);
-        self.timer = Timer::from_seconds(interval, TimerMode::Once);
+    /// Reset the timer with a fixed 1-second interval
+    pub fn reset_with_fixed_interval(&mut self) {
+        // Use fixed 1-second interval (min_interval = max_interval = 1.0)
+        self.timer = Timer::from_seconds(self.min_interval, TimerMode::Once);
     }
 
     /// Get a random spawn direction

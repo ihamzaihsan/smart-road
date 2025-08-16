@@ -1,7 +1,47 @@
 use bevy::prelude::*;
-use crate::components::{Vehicle, VehicleState, Direction, Route};
+use crate::components::{Vehicle, VehicleState, Direction};
 use crate::resources::{RoadConfig, SpawnManager, VehicleAssets, AutoSpawnTimer};
 use rand::Rng;
+
+/// System to handle keyboard input for manual vehicle spawning
+pub fn handle_keyboard_spawning(
+    keyboard_input: Res<Input<KeyCode>>,
+    mut spawn_manager: ResMut<SpawnManager>,
+    mut commands: Commands,
+    road_config: Res<RoadConfig>,
+    time: Res<Time>,
+    existing_vehicles: Query<&Transform, With<Vehicle>>,
+    vehicle_assets: Res<VehicleAssets>,
+) {
+    let current_time = time.elapsed_seconds_f64();
+
+    // Check for arrow key presses
+    let spawn_direction = if keyboard_input.just_pressed(KeyCode::Up) {
+        Some(Direction::North)
+    } else if keyboard_input.just_pressed(KeyCode::Down) {
+        Some(Direction::South)
+    } else if keyboard_input.just_pressed(KeyCode::Right) {
+        Some(Direction::East)
+    } else if keyboard_input.just_pressed(KeyCode::Left) {
+        Some(Direction::West)
+    } else {
+        None
+    };
+
+    if let Some(direction) = spawn_direction {
+        if spawn_manager.can_spawn(direction, current_time) {
+            if let Some(spawn_pos) = find_safe_spawn_position_fixed_lane(
+                direction,
+                &spawn_manager,
+                &road_config,
+                &existing_vehicles,
+            ) {
+                spawn_vehicle_at_position(&mut commands, &mut spawn_manager, direction, spawn_pos, &vehicle_assets);
+                spawn_manager.record_spawn(direction, current_time);
+            }
+        }
+    }
+}
 
 /// System to handle automatic vehicle spawning at random intervals
 pub fn handle_automatic_spawning(
@@ -41,9 +81,37 @@ pub fn handle_automatic_spawning(
             }
         }
 
-        // Reset the timer with a new random interval for the next spawn
-        spawn_timer.reset_with_random_interval();
+        // Reset the timer with a fixed 1-second interval for the next spawn
+        spawn_timer.reset_with_fixed_interval();
     }
+}
+
+/// Find a safe spawn position using fixed lane selection (for keyboard input)
+/// Uses the first available lane in the direction (deterministic positioning)
+fn find_safe_spawn_position_fixed_lane(
+    direction: Direction,
+    spawn_manager: &SpawnManager,
+    road_config: &RoadConfig,
+    existing_vehicles: &Query<&Transform, With<Vehicle>>,
+) -> Option<Vec3> {
+    let lane_centers = spawn_manager.get_lane_centers(direction, road_config);
+
+    // Try lanes in order (fixed positioning for keyboard input)
+    for &lane_offset in &lane_centers {
+        let potential_pos = spawn_manager.get_spawn_position(direction, lane_offset);
+
+        // Check if this position is safe (no vehicles too close)
+        let is_safe = existing_vehicles.iter().all(|transform| {
+            let distance = potential_pos.distance(transform.translation);
+            distance >= spawn_manager.min_spawn_separation
+        });
+
+        if is_safe {
+            return Some(potential_pos);
+        }
+    }
+
+    None // No safe position found
 }
 
 /// Find a safe spawn position that doesn't collide with existing vehicles
@@ -115,7 +183,7 @@ fn spawn_vehicle_at_position(
         SpriteBundle {
             texture: car_texture,
             sprite: Sprite {
-                custom_size: Some(Vec2::new(40.0, 25.0)), // Vehicle size - slightly larger for sprites
+                custom_size: Some(Vec2::new(60.0, 40.0)), // Increased vehicle size for better visibility
                 ..default()
             },
             transform: Transform::from_translation(position).with_rotation(rotation),
