@@ -118,10 +118,10 @@ pub struct AutoSpawnTimer {
 impl Default for AutoSpawnTimer {
     fn default() -> Self {
         Self {
-            timer: Timer::from_seconds(1.0, TimerMode::Once), // Fixed 1-second initial delay
+            timer: Timer::from_seconds(0.5, TimerMode::Once), // Fixed 1-second initial delay
             min_interval: 1.0,  // Fixed 1-second interval
             max_interval: 1.0,  // Fixed 1-second interval (same as min)
-            enabled: true,
+            enabled: false,     // Disabled by default - toggle with R key
         }
     }
 }
@@ -129,7 +129,6 @@ impl Default for AutoSpawnTimer {
 impl AutoSpawnTimer {
     /// Reset the timer with a fixed 1-second interval
     pub fn reset_with_fixed_interval(&mut self) {
-        // Use fixed 1-second interval (min_interval = max_interval = 1.0)
         self.timer = Timer::from_seconds(self.min_interval, TimerMode::Once);
     }
 

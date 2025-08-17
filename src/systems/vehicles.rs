@@ -86,6 +86,24 @@ pub fn handle_automatic_spawning(
     }
 }
 
+/// System to handle R key toggle for automatic spawning
+pub fn handle_spawn_toggle(
+    keyboard_input: Res<Input<KeyCode>>,
+    mut spawn_timer: ResMut<AutoSpawnTimer>,
+) {
+    if keyboard_input.just_pressed(KeyCode::R) {
+        spawn_timer.enabled = !spawn_timer.enabled;
+
+        if spawn_timer.enabled {
+            println!("🚗 Automatic spawning ENABLED - vehicles will spawn every 1 second");
+            // Reset timer when enabling to start fresh
+            spawn_timer.reset_with_fixed_interval();
+        } else {
+            println!("⏸️  Automatic spawning DISABLED - use arrow keys for manual spawning");
+        }
+    }
+}
+
 /// Find a safe spawn position using fixed lane selection (for keyboard input)
 /// Uses the first available lane in the direction (deterministic positioning)
 fn find_safe_spawn_position_fixed_lane(
@@ -173,17 +191,17 @@ fn spawn_vehicle_at_position(
 
     // Calculate rotation based on direction
     let rotation = match direction {
-        Direction::North => Quat::from_rotation_z(0.0),           // Facing up
-        Direction::South => Quat::from_rotation_z(std::f32::consts::PI), // Facing down
-        Direction::East => Quat::from_rotation_z(-std::f32::consts::PI / 2.0), // Facing right
-        Direction::West => Quat::from_rotation_z(std::f32::consts::PI / 2.0),  // Facing left
+        Direction::North => Quat::from_rotation_z(0.0),       
+        Direction::South => Quat::from_rotation_z(std::f32::consts::PI), 
+        Direction::East => Quat::from_rotation_z(-std::f32::consts::PI / 2.0), 
+        Direction::West => Quat::from_rotation_z(std::f32::consts::PI / 2.0),  
     };
 
     commands.spawn((
         SpriteBundle {
             texture: car_texture,
             sprite: Sprite {
-                custom_size: Some(Vec2::new(60.0, 40.0)), // Increased vehicle size for better visibility
+                custom_size: Some(Vec2::new(80.0, 60.0)), 
                 ..default()
             },
             transform: Transform::from_translation(position).with_rotation(rotation),

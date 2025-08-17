@@ -22,25 +22,40 @@ cargo build --release
 cargo run --bin visual_sim
 ```
 
-## Manual Vehicle Spawning Controls
+## Hybrid Vehicle Spawning System
 
-The smart-road simulator uses **keyboard-controlled vehicle spawning**:
+The smart-road simulator supports both **manual and automatic vehicle spawning**:
 
+### Manual Controls (Always Active)
 - **Arrow Up**: Spawn vehicle from south moving north (random car sprite, fixed lane)
 - **Arrow Down**: Spawn vehicle from north moving south (random car sprite, fixed lane)
 - **Arrow Right**: Spawn vehicle from west moving east (random car sprite, fixed lane)
 - **Arrow Left**: Spawn vehicle from east moving west (random car sprite, fixed lane)
-- **Manual Control**: Vehicles only appear when you actively press arrow keys
-- **No Automatic Spawning**: No background spawning - complete user control
+
+### Automatic Spawning Toggle
+- **R Key**: Toggle automatic spawning on/off
+  - **Default**: Automatic spawning is **disabled** (manual-only mode)
+  - **Press R**: Enable automatic spawning (vehicles spawn every 1 second from random directions)
+  - **Press R again**: Disable automatic spawning (return to manual-only mode)
+  - **Console feedback**: Shows current automatic spawning status
+
+### Hybrid Mode
+When automatic spawning is enabled, both systems work simultaneously:
+- Vehicles spawn automatically every 1 second from random directions with random lanes
+- Arrow keys continue to work for immediate manual spawning
+- Both systems use the same collision prevention and safety features
 
 ## Features Implemented
 
 ✅ **Road Intersection Rendering**: Procedural cross-intersection with lane markings
+✅ **Hybrid Spawning System**: Both manual (arrow keys) and automatic (R key toggle) vehicle spawning
 ✅ **Keyboard-Controlled Vehicle Spawning**: Manual spawning system using arrow keys
+✅ **Automatic Spawning Toggle**: R key toggles automatic spawning every 1 second with console feedback
 ✅ **Fixed Lane Positioning**: Keyboard spawning uses deterministic lane selection for consistent behavior
+✅ **Random Direction/Lane Selection**: Automatic spawning uses random directions and lanes
 ✅ **Car Sprite Rendering**: Uses actual car images from assets/ directory (Car.png, Audi.png, Mini_van.png, taxi.png, Police.png)
 ✅ **Random Car Sprite Selection**: Each spawned vehicle gets a randomly selected car sprite for visual variety
-✅ **Larger Vehicle Size**: Vehicles rendered at 60x40 pixels for better visibility
+✅ **Larger Vehicle Size**: Vehicles rendered at 80x60 pixels for excellent visibility
 ✅ **Vehicle Rotation**: Car sprites are properly rotated based on movement direction
 ✅ **Vehicle Movement**: Vehicles move in their assigned direction with realistic physics
 ✅ **Collision Prevention**: Prevents vehicles from spawning on top of each other
