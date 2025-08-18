@@ -12,9 +12,12 @@ log = "0.4"
 env_logger = "0.9"
 rand = "0.8"
 
-# Bevy game engine (choose this for ECS + rendering/input). This will pull a lot of
-# dependencies and requires a working Rust toolchain and native build tools on Windows.
-bevy = "0.11"
+
+sdl2 = { version = "0.35", features = ["image", "ttf"] }
+
+
+nalgebra = "0.32"
+instant = "0.1"   
 
 [dev-dependencies]
 # Add test helpers here

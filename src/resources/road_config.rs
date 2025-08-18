@@ -1,7 +1,6 @@
 /// Global configuration for road visuals and layout.
-use bevy::prelude::Resource;
 
-#[derive(Resource, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct RoadConfig {
     pub lane_width: f32,
     pub dash_length: f32,

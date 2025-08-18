@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use crate::components::{Vehicle, VehicleState, Direction};
 use crate::resources::{RoadConfig, SpawnManager, VehicleAssets, AutoSpawnTimer};
 use rand::Rng;
+use nalgebra::Vector2;
 
 /// System to handle keyboard input for manual vehicle spawning
 pub fn handle_keyboard_spawning(
@@ -209,11 +210,19 @@ fn spawn_vehicle_at_position(
         },
         Vehicle {
             id: vehicle_id,
+            position: Vector2::new(position.x, position.y),
             speed: 0.0,
             state: VehicleState::Moving,
             route,
             direction,
             target_speed: get_random_speed(),
+            rotation: match direction {
+                Direction::North => 0.0,
+                Direction::South => std::f32::consts::PI,
+                Direction::East => -std::f32::consts::PI / 2.0,
+                Direction::West => std::f32::consts::PI / 2.0,
+            },
+            texture_index: vehicle_assets.get_random_texture_index(),
         },
     ));
 }

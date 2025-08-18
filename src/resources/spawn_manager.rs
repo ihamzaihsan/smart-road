@@ -1,10 +1,12 @@
-use bevy::prelude::*;
 use crate::components::{Direction, Route};
 use std::collections::HashMap;
 use rand::Rng;
+use nalgebra::Vector2;
+use instant::Instant;
 
 
-#[derive(Resource, Debug)]
+/// Manages vehicle spawning and prevents collision during spawn
+#[derive(Debug)]
 pub struct SpawnManager {
     pub next_id: u64,
     pub last_spawn_time: HashMap<Direction, f64>,
@@ -18,9 +20,9 @@ impl Default for SpawnManager {
         Self {
             next_id: 1,
             last_spawn_time: HashMap::new(),
-            spawn_cooldown: 0.5, 
-            spawn_distance: 300.0, 
-            min_spawn_separation: 60.0, 
+            spawn_cooldown: 0.3,  // Reduced cooldown for faster spawning
+            spawn_distance: 300.0,
+            min_spawn_separation: 50.0,  // Reduced separation for more vehicles
         }
     }
 }
@@ -46,14 +48,16 @@ impl SpawnManager {
     }
 
     /// Calculate spawn position for a vehicle based on direction and lane
-    pub fn get_spawn_position(&self, direction: Direction, lane_offset: f32) -> Vec3 {
+    pub fn get_spawn_position(&self, direction: Direction, lane_offset: f32) -> Vector2<f32> {
         match direction {
-            Direction::North => Vec3::new(lane_offset, -self.spawn_distance, 5.0),
-            Direction::South => Vec3::new(lane_offset, self.spawn_distance, 5.0),
-            Direction::East => Vec3::new(-self.spawn_distance, lane_offset, 5.0),
-            Direction::West => Vec3::new(self.spawn_distance, lane_offset, 5.0),
+            Direction::North => Vector2::new(lane_offset, -self.spawn_distance),
+            Direction::South => Vector2::new(lane_offset, self.spawn_distance),
+            Direction::East => Vector2::new(-self.spawn_distance, lane_offset),
+            Direction::West => Vector2::new(self.spawn_distance, lane_offset),
         }
     }
+
+
 
     /// Get lane centers for a given direction based on road configuration
     pub fn get_lane_centers(&self, direction: Direction, road_config: &crate::resources::RoadConfig) -> Vec<f32> {
@@ -102,15 +106,13 @@ impl SpawnManager {
     }
 }
 
-/// Resource that manages automatic vehicle spawning with configurable timing
-#[derive(Resource, Debug)]
+/// Manages automatic vehicle spawning with configurable timing
+#[derive(Debug)]
 pub struct AutoSpawnTimer {
-    /// Timer for controlling spawn frequency
-    pub timer: Timer,
-    /// Minimum spawn interval in seconds
-    pub min_interval: f32,
-    /// Maximum spawn interval in seconds
-    pub max_interval: f32,
+    /// Last time a spawn occurred
+    pub last_spawn_time: Instant,
+    /// Spawn interval in seconds
+    pub spawn_interval: f32,
     /// Whether automatic spawning is enabled
     pub enabled: bool,
 }
@@ -118,18 +120,25 @@ pub struct AutoSpawnTimer {
 impl Default for AutoSpawnTimer {
     fn default() -> Self {
         Self {
-            timer: Timer::from_seconds(0.5, TimerMode::Once), // Fixed 1-second initial delay
-            min_interval: 1.0,  // Fixed 1-second interval
-            max_interval: 1.0,  // Fixed 1-second interval (same as min)
-            enabled: false,     // Disabled by default - toggle with R key
+            last_spawn_time: Instant::now(),
+            spawn_interval: 0.5,  // Fast spawning - 0.3 second interval
+            enabled: false,       // Disabled by default - toggle with R key
         }
     }
 }
 
 impl AutoSpawnTimer {
-    /// Reset the timer with a fixed 1-second interval
-    pub fn reset_with_fixed_interval(&mut self) {
-        self.timer = Timer::from_seconds(self.min_interval, TimerMode::Once);
+    /// Check if enough time has passed for the next spawn
+    pub fn should_spawn(&self) -> bool {
+        if !self.enabled {
+            return false;
+        }
+        self.last_spawn_time.elapsed().as_secs_f32() >= self.spawn_interval
+    }
+
+    /// Reset the timer after a spawn
+    pub fn reset_timer(&mut self) {
+        self.last_spawn_time = Instant::now();
     }
 
     /// Get a random spawn direction
