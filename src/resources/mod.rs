@@ -1,9 +1,7 @@
-pub mod road_config;
+pub mod config;
 pub mod stats;
-pub mod spawn_manager;
-pub mod vehicle_assets;
+pub mod assets;
 
-pub use road_config::RoadConfig;
-pub use stats::Stats;
-pub use spawn_manager::{SpawnManager, AutoSpawnTimer};
-pub use vehicle_assets::VehicleAssets;
+pub use config::*;
+pub use stats::*;
+pub use assets::*;

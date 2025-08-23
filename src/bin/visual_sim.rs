@@ -1,7 +1,7 @@
 use sdl2::event::Event;
 use std::time::Duration;
 
-use smart_road::game::Game;
+use smart_road::core::Game;
 use smart_road::rendering::Renderer;
 
 fn main() -> Result<(), String> {
@@ -76,4 +76,3 @@ fn main() -> Result<(), String> {
     println!("Smart Road Simulator shutting down...");
     Ok(())
 }
-

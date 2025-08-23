@@ -4,7 +4,6 @@ use crate::resources::{RoadConfig, SpawnManager, VehicleAssets, AutoSpawnTimer};
 use rand::Rng;
 use nalgebra::Vector2;
 
-/// System to handle keyboard input for manual vehicle spawning
 pub fn handle_keyboard_spawning(
     keyboard_input: Res<Input<KeyCode>>,
     mut spawn_manager: ResMut<SpawnManager>,
@@ -44,7 +43,6 @@ pub fn handle_keyboard_spawning(
     }
 }
 
-/// System to handle automatic vehicle spawning at random intervals
 pub fn handle_automatic_spawning(
     mut spawn_timer: ResMut<AutoSpawnTimer>,
     mut spawn_manager: ResMut<SpawnManager>,
@@ -87,7 +85,6 @@ pub fn handle_automatic_spawning(
     }
 }
 
-/// System to handle R key toggle for automatic spawning
 pub fn handle_spawn_toggle(
     keyboard_input: Res<Input<KeyCode>>,
     mut spawn_timer: ResMut<AutoSpawnTimer>,
@@ -105,8 +102,6 @@ pub fn handle_spawn_toggle(
     }
 }
 
-/// Find a safe spawn position using fixed lane selection (for keyboard input)
-/// Uses the first available lane in the direction (deterministic positioning)
 fn find_safe_spawn_position_fixed_lane(
     direction: Direction,
     spawn_manager: &SpawnManager,
@@ -133,8 +128,6 @@ fn find_safe_spawn_position_fixed_lane(
     None // No safe position found
 }
 
-/// Find a safe spawn position that doesn't collide with existing vehicles
-/// Uses random lane selection - tries a random lane first, then falls back to other lanes if needed
 fn find_safe_spawn_position(
     direction: Direction,
     spawn_manager: &SpawnManager,
@@ -178,7 +171,6 @@ fn find_safe_spawn_position(
     None // No safe position found
 }
 
-/// Spawn a vehicle at the specified position
 fn spawn_vehicle_at_position(
     commands: &mut Commands,
     spawn_manager: &mut SpawnManager,
@@ -227,15 +219,11 @@ fn spawn_vehicle_at_position(
     ));
 }
 
-
-
-/// Get a random target speed for the vehicle
 fn get_random_speed() -> f32 {
     let mut rng = rand::thread_rng();
     rng.gen_range(30.0..80.0) // Random speed between 30 and 80 units per second
 }
 
-/// System to move vehicles based on their direction and speed
 pub fn move_vehicles(
     mut query: Query<(&mut Transform, &mut Vehicle)>,
     time: Res<Time>,
@@ -264,7 +252,6 @@ pub fn move_vehicles(
     }
 }
 
-/// Legacy function kept for compatibility with keyboard input
 pub fn handle_spawn_input(
     _keyboard_input: Res<Input<KeyCode>>,
     _spawn_manager: ResMut<SpawnManager>,
@@ -279,7 +266,6 @@ pub fn handle_spawn_input(
     // Does nothing - automatic spawning handles vehicle creation
 }
 
-/// Legacy function kept for compatibility
 pub fn spawn_vehicles(_commands: Commands) {
     // This function is now replaced by handle_automatic_spawning
     // Kept as stub for existing plugin compatibility

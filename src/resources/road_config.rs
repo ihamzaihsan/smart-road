@@ -1,5 +1,3 @@
-/// Global configuration for road visuals and layout.
-
 #[derive(Debug, Clone)]
 pub struct RoadConfig {
     pub lane_width: f32,

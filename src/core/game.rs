@@ -7,11 +7,11 @@ use std::time::Instant;
 use nalgebra::Vector2;
 
 use crate::components::{Vehicle, Direction, VehicleState, Route};
-use crate::resources::{RoadConfig, SpawnManager, AutoSpawnTimer, VehicleAssets};
+use crate::resources::{RoadConfig, VehicleAssets};
+use crate::systems::{SpawnManager, AutoSpawnTimer};
 use crate::rendering::Renderer;
 use crate::input::InputSystem;
 
-/// Main game state and logic
 pub struct Game<'a> {
     pub vehicles: Vec<Vehicle>,
     pub spawn_manager: SpawnManager,
@@ -20,11 +20,11 @@ pub struct Game<'a> {
     pub vehicle_assets: VehicleAssets<'a>,
     pub input_system: InputSystem,
     pub last_update: Instant,
-    pub start_time: Instant,  // Track program start time for consistent timing
+    pub start_time: Instant,  
 }
 
 impl<'a> Game<'a> {
-    /// Create a new game instance
+    
     pub fn new(texture_creator: &'a TextureCreator<WindowContext>) -> Result<Self, String> {
         let mut vehicle_assets = VehicleAssets::new();
 
@@ -49,13 +49,10 @@ impl<'a> Game<'a> {
         })
     }
 
-    /// Update game logic
     pub fn update(&mut self, events: &[Event]) -> bool {
         let current_time = Instant::now();
         let delta_time = current_time.duration_since(self.last_update).as_secs_f32();
         self.last_update = current_time;
-
-        // Debug output removed to avoid static mut warning
 
         // Update input system
         self.input_system.update(events);
@@ -87,7 +84,6 @@ impl<'a> Game<'a> {
         true // Continue running
     }
 
-    /// Handle keyboard-controlled vehicle spawning
     fn handle_keyboard_spawning(&mut self, current_time: Instant) {
         let current_time_f64 = current_time.duration_since(self.start_time).as_secs_f64();
 
@@ -113,7 +109,6 @@ impl<'a> Game<'a> {
         }
     }
 
-    /// Handle R key toggle for automatic spawning
     fn handle_spawn_toggle(&mut self) {
         if self.input_system.just_pressed(Keycode::R) {
             self.auto_spawn_timer.enabled = !self.auto_spawn_timer.enabled;
@@ -127,7 +122,6 @@ impl<'a> Game<'a> {
         }
     }
 
-    /// Handle automatic vehicle spawning
     fn handle_automatic_spawning(&mut self, current_time: Instant) {
         if !self.auto_spawn_timer.should_spawn() {
             return;
@@ -140,20 +134,18 @@ impl<'a> Game<'a> {
             if let Some(spawn_pos) = self.find_safe_spawn_position(direction) {
                 self.spawn_vehicle_at_position(direction, spawn_pos);
                 self.spawn_manager.record_spawn(direction, current_time_f64);
-                self.auto_spawn_timer.reset_timer(); // Only reset timer when spawn succeeds
+                self.auto_spawn_timer.reset_timer(); 
             }
         }
     }
 
-    /// Find a safe spawn position using fixed lane selection (for keyboard input)
     fn find_safe_spawn_position_fixed_lane(&self, direction: Direction) -> Option<Vector2<f32>> {
         let lane_centers = self.spawn_manager.get_lane_centers(direction, &self.road_config);
         
-        // Try lanes in order (fixed positioning for keyboard input)
         for &lane_offset in &lane_centers {
             let potential_pos = self.spawn_manager.get_spawn_position(direction, lane_offset);
             
-            // Check if this position is safe (no vehicles too close)
+
             let is_safe = self.vehicles.iter().all(|vehicle| {
                 let distance = (potential_pos - vehicle.position).magnitude();
                 distance >= self.spawn_manager.min_spawn_separation
@@ -164,18 +156,16 @@ impl<'a> Game<'a> {
             }
         }
         
-        None // No safe position found
+        None 
     }
 
-    /// Find a safe spawn position using random lane selection (for automatic spawning)
     fn find_safe_spawn_position(&self, direction: Direction) -> Option<Vector2<f32>> {
         let lane_centers = self.spawn_manager.get_lane_centers(direction, &self.road_config);
-        
-        // First try a random lane
+
         let random_lane_offset = self.spawn_manager.get_random_lane_center(direction, &self.road_config);
         let potential_pos = self.spawn_manager.get_spawn_position(direction, random_lane_offset);
         
-        // Check if this position is safe (no vehicles too close)
+
         let is_safe = self.vehicles.iter().all(|vehicle| {
             let distance = (potential_pos - vehicle.position).magnitude();
             distance >= self.spawn_manager.min_spawn_separation
@@ -185,10 +175,10 @@ impl<'a> Game<'a> {
             return Some(potential_pos);
         }
         
-        // If random lane is not safe, try all other lanes as fallback
+
         for &lane_offset in &lane_centers {
             if (lane_offset - random_lane_offset).abs() < 0.1 {
-                continue; // Skip the random lane we already tried
+                continue; 
             }
             
             let potential_pos = self.spawn_manager.get_spawn_position(direction, lane_offset);
@@ -203,10 +193,9 @@ impl<'a> Game<'a> {
             }
         }
         
-        None // No safe position found
+        None 
     }
 
-    /// Spawn a vehicle at the specified position
     fn spawn_vehicle_at_position(&mut self, direction: Direction, position: Vector2<f32>) {
         let vehicle_id = self.spawn_manager.next_id;
         self.spawn_manager.next_id += 1;
@@ -221,7 +210,7 @@ impl<'a> Game<'a> {
             state: VehicleState::Moving,
             route: Route::Straight,
             direction,
-            target_speed: 100.0, // pixels per second
+            target_speed: 100.0, 
             rotation,
             texture_index,
         };
@@ -229,16 +218,15 @@ impl<'a> Game<'a> {
         self.vehicles.push(vehicle);
     }
 
-    /// Update vehicle movement and physics
     fn update_vehicles(&mut self, delta_time: f32) {
         for vehicle in &mut self.vehicles {
             if vehicle.state != VehicleState::Moving {
                 continue;
             }
 
-            // Gradually accelerate to target speed
+
             let speed_diff = vehicle.target_speed - vehicle.speed;
-            let acceleration = 50.0; // units per second squared
+            let acceleration = 50.0; 
             vehicle.speed += speed_diff.signum() * acceleration * delta_time;
             vehicle.speed = vehicle.speed.clamp(0.0, vehicle.target_speed);
 
@@ -248,20 +236,16 @@ impl<'a> Game<'a> {
         }
     }
 
-    /// Remove vehicles that have left the simulation area
     fn cleanup_vehicles(&mut self) {
-        let cleanup_distance = 350.0; // Reduced distance for more aggressive cleanup
-
+        let cleanup_distance = 350.0;
 
         self.vehicles.retain(|vehicle| {
             let distance_from_center = vehicle.position.magnitude();
             distance_from_center <= cleanup_distance
         });
 
-        // Vehicles are cleaned up silently
     }
 
-    /// Render the game
     pub fn render(&mut self, renderer: &mut Renderer) -> Result<(), String> {
         renderer.clear();
         renderer.render_roads(&self.road_config)?;

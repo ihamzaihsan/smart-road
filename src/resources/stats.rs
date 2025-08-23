@@ -1,4 +1,3 @@
-/// Runtime statistics collected during a simulation run.
 #[derive(Debug, Default, Clone)]
 pub struct Stats {
     pub vehicles_passed: u64,

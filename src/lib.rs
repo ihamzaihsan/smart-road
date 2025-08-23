@@ -1,9 +1,14 @@
-//! Library crate root for smart-road.
-//!
-//! SDL2-based smart road intersection simulator.
-
+pub mod core;
 pub mod components;
 pub mod resources;
+pub mod systems;
+pub mod algorithms;
+pub mod statistics;
 pub mod rendering;
 pub mod input;
-pub mod game;
+pub mod animation;
+pub mod utils;
+
+pub use core::*;
+pub use components::*;
+pub use resources::*;

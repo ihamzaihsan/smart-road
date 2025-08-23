@@ -4,8 +4,6 @@ use rand::Rng;
 use nalgebra::Vector2;
 use instant::Instant;
 
-
-/// Manages vehicle spawning and prevents collision during spawn
 #[derive(Debug)]
 pub struct SpawnManager {
     pub next_id: u64,
@@ -34,7 +32,6 @@ impl SpawnManager {
         id
     }
 
-    /// Check if enough time has passed since last spawn in this direction
     pub fn can_spawn(&self, direction: Direction, current_time: f64) -> bool {
         match self.last_spawn_time.get(&direction) {
             Some(&last_time) => current_time - last_time >= self.spawn_cooldown,
@@ -42,12 +39,10 @@ impl SpawnManager {
         }
     }
 
-    /// Record a spawn time for a direction
     pub fn record_spawn(&mut self, direction: Direction, time: f64) {
         self.last_spawn_time.insert(direction, time);
     }
 
-    /// Calculate spawn position for a vehicle based on direction and lane
     pub fn get_spawn_position(&self, direction: Direction, lane_offset: f32) -> Vector2<f32> {
         match direction {
             Direction::North => Vector2::new(lane_offset, -self.spawn_distance),
@@ -57,9 +52,6 @@ impl SpawnManager {
         }
     }
 
-
-
-    /// Get lane centers for a given direction based on road configuration
     pub fn get_lane_centers(&self, direction: Direction, road_config: &crate::resources::RoadConfig) -> Vec<f32> {
         let lane_width = road_config.lane_width;
         let lanes_per_direction = road_config.num_lanes;
@@ -86,7 +78,6 @@ impl SpawnManager {
         }
     }
 
-    /// Get a random lane center for a given direction
     pub fn get_random_lane_center(&self, direction: Direction, road_config: &crate::resources::RoadConfig) -> f32 {
         let lane_centers = self.get_lane_centers(direction, road_config);
         let mut rng = rand::thread_rng();
@@ -94,7 +85,6 @@ impl SpawnManager {
         lane_centers[index]
     }
 
-    /// Randomly select a route for a vehicle
     pub fn random_route() -> Route {
         use rand::Rng;
         let mut rng = rand::thread_rng();
@@ -106,14 +96,13 @@ impl SpawnManager {
     }
 }
 
-/// Manages automatic vehicle spawning with configurable timing
 #[derive(Debug)]
 pub struct AutoSpawnTimer {
-    /// Last time a spawn occurred
+    
     pub last_spawn_time: Instant,
-    /// Spawn interval in seconds
+    
     pub spawn_interval: f32,
-    /// Whether automatic spawning is enabled
+    
     pub enabled: bool,
 }
 
@@ -128,7 +117,7 @@ impl Default for AutoSpawnTimer {
 }
 
 impl AutoSpawnTimer {
-    /// Check if enough time has passed for the next spawn
+    
     pub fn should_spawn(&self) -> bool {
         if !self.enabled {
             return false;
@@ -136,12 +125,10 @@ impl AutoSpawnTimer {
         self.last_spawn_time.elapsed().as_secs_f32() >= self.spawn_interval
     }
 
-    /// Reset the timer after a spawn
     pub fn reset_timer(&mut self) {
         self.last_spawn_time = Instant::now();
     }
 
-    /// Get a random spawn direction
     pub fn random_direction() -> Direction {
         let mut rng = rand::thread_rng();
         match rng.gen_range(0..4) {

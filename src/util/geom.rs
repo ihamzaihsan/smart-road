@@ -1,12 +1,9 @@
-/// Pure geometry and helper functions.
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Point {
     pub x: f32,
     pub y: f32,
 }
 
-/// Return the center line for a lane index (simple horizontal lanes example).
 pub fn lane_center(index: usize, lane_width: f32) -> Point {
     Point {
         x: 0.0,
@@ -20,7 +17,6 @@ pub fn distance(a: Point, b: Point) -> f32 {
     (dx * dx + dy * dy).sqrt()
 }
 
-/// Simple conflict detector: two points conflict if closer than `sep`.
 pub fn conflict(a: Point, b: Point, sep: f32) -> bool {
     distance(a, b) < sep
 }

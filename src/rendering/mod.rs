@@ -5,14 +5,13 @@ use sdl2::pixels::Color;
 use crate::components::Vehicle;
 use crate::resources::{RoadConfig, VehicleAssets};
 
-/// SDL2 rendering system for the smart-road simulator
 pub struct Renderer<'a> {
     pub canvas: Canvas<Window>,
     pub texture_creator: &'a TextureCreator<WindowContext>,
 }
 
 impl<'a> Renderer<'a> {
-    /// Create a new renderer with the given canvas and texture creator
+    
     pub fn new(canvas: Canvas<Window>, texture_creator: &'a TextureCreator<WindowContext>) -> Self {
         Self {
             canvas,
@@ -20,18 +19,15 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    /// Clear the screen with a background color
     pub fn clear(&mut self) {
         self.canvas.set_draw_color(Color::RGB(50, 50, 50)); // Dark gray background
         self.canvas.clear();
     }
 
-    /// Present the rendered frame
     pub fn present(&mut self) {
         self.canvas.present();
     }
 
-    /// Render the road intersection
     pub fn render_roads(&mut self, road_config: &RoadConfig) -> Result<(), String> {
         let (window_width, window_height) = self.canvas.output_size().map_err(|e| e.to_string())?;
         let center_x = window_width as i32 / 2;
@@ -67,7 +63,6 @@ impl<'a> Renderer<'a> {
         Ok(())
     }
 
-    /// Render lane markings (dashed lines and median separators)
     fn render_lane_markings(
         &mut self,
         road_config: &RoadConfig,
@@ -175,7 +170,6 @@ impl<'a> Renderer<'a> {
         Ok(())
     }
 
-    /// Render a single vehicle
     pub fn render_vehicle(
         &mut self,
         vehicle: &Vehicle,
@@ -228,7 +222,6 @@ impl<'a> Renderer<'a> {
         Ok(())
     }
 
-    /// Render all vehicles
     pub fn render_vehicles(
         &mut self,
         vehicles: &[Vehicle],
