@@ -67,7 +67,7 @@ impl<'a> Renderer<'a> {
         Ok(())
     }
 
-    /// Render lane markings (dashed lines)
+    /// Render lane markings (dashed lines and median separators)
     fn render_lane_markings(
         &mut self,
         road_config: &RoadConfig,
@@ -76,33 +76,101 @@ impl<'a> Renderer<'a> {
         window_width: u32,
         window_height: u32,
     ) -> Result<(), String> {
-        self.canvas.set_draw_color(Color::RGB(255, 255, 255)); // White for lane markings
-
         let lane_width = road_config.lane_width as i32;
+        let lanes_per_direction = road_config.num_lanes;
+        let total_lanes = lanes_per_direction * 2;
+        let road_width = lane_width * total_lanes as i32;
         let dash_length = road_config.dash_length as i32;
-        let dash_gap = dash_length;
-
-        // Horizontal lane markings (for vertical road)
-        for lane_offset in [-lane_width, lane_width] {
-            let y = center_y + lane_offset;
-            let mut x = 0;
-            while x < window_width as i32 {
-                let dash_rect = Rect::new(x, y - 1, dash_length as u32, 2);
-                self.canvas.fill_rect(dash_rect).map_err(|e| e.to_string())?;
-                x += dash_length + dash_gap;
-            }
+        let dash_gap = road_config.dash_gap as i32;
+        
+        // Calculate intersection bounds (no dashes in center)
+        let intersection_half = road_width / 2;
+        
+        // Calculate all lane positions from left edge
+        let left_edge = -road_width / 2;
+        let mut lane_separators: Vec<i32> = Vec::new();
+        
+        // Add separators between individual lanes (but not between opposing directions)
+        // Left group separators (lanes 0|1 and 1|2)
+        for j in 1..lanes_per_direction {
+            lane_separators.push(left_edge + (j as i32) * lane_width);
+        }
+        
+        // Right group separators (lanes 3|4 and 4|5)  
+        for j in (lanes_per_direction + 1)..total_lanes {
+            lane_separators.push(left_edge + (j as i32) * lane_width);
         }
 
-        // Vertical lane markings (for horizontal road)
-        for lane_offset in [-lane_width, lane_width] {
-            let x = center_x + lane_offset;
+        // Draw white dashed lines between individual lanes
+        self.canvas.set_draw_color(Color::RGB(255, 255, 255)); // White for lane markings
+        
+        for &separator_offset in &lane_separators {
+            // Horizontal dashes (for vertical road lanes)
+            let y = center_y + separator_offset;
+            let mut x = 0;
+            while x < window_width as i32 {
+                // Skip dashes in intersection area
+                if (x - center_x).abs() > intersection_half {
+                    let dash_rect = Rect::new(x, y - 1, dash_length as u32, 2);
+                    self.canvas.fill_rect(dash_rect).map_err(|e| e.to_string())?;
+                }
+                x += dash_length + dash_gap;
+            }
+
+            // Vertical dashes (for horizontal road lanes)
+            let x = center_x + separator_offset;
             let mut y = 0;
             while y < window_height as i32 {
-                let dash_rect = Rect::new(x - 1, y, 2, dash_length as u32);
-                self.canvas.fill_rect(dash_rect).map_err(|e| e.to_string())?;
+                // Skip dashes in intersection area
+                if (y - center_y).abs() > intersection_half {
+                    let dash_rect = Rect::new(x - 1, y, 2, dash_length as u32);
+                    self.canvas.fill_rect(dash_rect).map_err(|e| e.to_string())?;
+                }
                 y += dash_length + dash_gap;
             }
         }
+
+        // Draw white solid median separators between opposing directions (skip intersection)
+        self.canvas.set_draw_color(Color::RGB(255, 255, 255)); // White for medians
+        let median_width = 6;
+        
+        // Horizontal median separator (separates up/down traffic) - skip intersection
+        // Left side of intersection
+        let left_median_rect = Rect::new(
+            0,
+            center_y - median_width / 2,
+            (center_x - intersection_half) as u32,
+            median_width as u32,
+        );
+        self.canvas.fill_rect(left_median_rect).map_err(|e| e.to_string())?;
+        
+        // Right side of intersection
+        let right_median_rect = Rect::new(
+            center_x + intersection_half,
+            center_y - median_width / 2,
+            (center_x - intersection_half) as u32,
+            median_width as u32,
+        );
+        self.canvas.fill_rect(right_median_rect).map_err(|e| e.to_string())?;
+        
+        // Vertical median separator (separates left/right traffic) - skip intersection
+        // Top side of intersection
+        let top_median_rect = Rect::new(
+            center_x - median_width / 2,
+            0,
+            median_width as u32,
+            (center_y - intersection_half) as u32,
+        );
+        self.canvas.fill_rect(top_median_rect).map_err(|e| e.to_string())?;
+        
+        // Bottom side of intersection
+        let bottom_median_rect = Rect::new(
+            center_x - median_width / 2,
+            center_y + intersection_half,
+            median_width as u32,
+            (center_y - intersection_half) as u32,
+        );
+        self.canvas.fill_rect(bottom_median_rect).map_err(|e| e.to_string())?;
 
         Ok(())
     }

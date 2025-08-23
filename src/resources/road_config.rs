@@ -14,7 +14,7 @@ impl Default for RoadConfig {
             lane_width: 50.0,
             dash_length: 20.0,
             dash_gap: 15.0,
-            num_lanes: 2,
+            num_lanes: 3,
         }
     }
 }

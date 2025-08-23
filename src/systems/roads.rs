@@ -7,9 +7,15 @@ pub fn setup_roads(mut commands: Commands, config: Res<RoadConfig>) {
     // Configuration for the intersection
     let world_size = 800.0f32; // overall viewport/world size (still constant here)
     let lane_width = config.lane_width; // width per lane (from RoadConfig)
-    let lanes_per_direction = config.num_lanes; // lanes per direction (assumption: num_lanes is per-approach)
-    let total_lanes = lanes_per_direction * 2; // both directions
-    let road_width = lane_width * total_lanes as f32; // total road width
+    let lanes_per_direction = config.num_lanes; // lanes per direction (3 lanes per direction)
+    let total_lanes = lanes_per_direction * 2; // both directions (6 lanes total)
+    let road_width = lane_width * total_lanes as f32; // total road width (300 units)
+    
+    // Lane layout (with 3 lanes per direction):
+    // Left side: 3 lanes moving one direction (e.g., South/West)
+    // Yellow median separator in the middle
+    // Right side: 3 lanes moving opposite direction (e.g., North/East)
+    // Dashed lines separate individual lanes within each direction
 
     // Background (neutral grey)
     commands.spawn(SpriteBundle {
@@ -43,7 +49,7 @@ pub fn setup_roads(mut commands: Commands, config: Res<RoadConfig>) {
         ..default()
     });
 
-    // Lane markings: draw dashed separators between each lane, but skip dashes inside the central intersection
+    // Lane markings: draw separators and dashed lines between lanes
     let dash_len = config.dash_length;
     let gap = config.dash_gap;
     let intersection_half = road_width / 2.0; // half-size of the central square where roads cross
@@ -55,24 +61,57 @@ pub fn setup_roads(mut commands: Commands, config: Res<RoadConfig>) {
         lane_centers.push(left_edge + lane_width / 2.0 + idx as f32 * lane_width);
     }
 
-    // Compute separator offsets between lanes (j = 1..total_lanes-1). These are where dashed
-    // separators should be drawn; this avoids drawing an extra dash at the outer road edges.
-    let mut separator_offsets: Vec<f32> = Vec::new();
-    for j in 1..total_lanes {
-        separator_offsets.push(left_edge + j as f32 * lane_width);
+    // Draw solid median separators between opposing directions
+    let separator_width = 8.0f32;
+    
+    // Vertical median (separates left/right moving lanes at x=0)
+    commands.spawn(SpriteBundle {
+        sprite: Sprite {
+            color: Color::rgb(0.9, 0.9, 0.1), // Yellow median
+            custom_size: Some(Vec2::new(separator_width, world_size)),
+            ..default()
+        },
+        transform: Transform::from_translation(Vec3::new(0.0, 0.0, 2.0)),
+        ..default()
+    });
+
+    // Horizontal median (separates up/down moving lanes at y=0)
+    commands.spawn(SpriteBundle {
+        sprite: Sprite {
+            color: Color::rgb(0.9, 0.9, 0.1), // Yellow median
+            custom_size: Some(Vec2::new(world_size, separator_width)),
+            ..default()
+        },
+        transform: Transform::from_translation(Vec3::new(0.0, 0.0, 2.0)),
+        ..default()
+    });
+
+    // Draw dashed lines between individual lanes within each direction
+    // First, compute all lane separator positions (between individual lanes, not between directions)
+    let mut lane_separator_offsets: Vec<f32> = Vec::new();
+    
+    // Separators within the left group (lanes 0-2, separators at positions 1 and 2)
+    for j in 1..lanes_per_direction {
+        lane_separator_offsets.push(left_edge + j as f32 * lane_width);
+    }
+    
+    // Separators within the right group (lanes 3-5, separators at positions 4 and 5)
+    for j in (lanes_per_direction + 1)..total_lanes {
+        lane_separator_offsets.push(left_edge + j as f32 * lane_width);
     }
 
-    // Draw dashed separators for each separator offset, but skip inside intersection
-    for &offset in &separator_offsets {
+    // Draw dashed separators for each lane separator offset, but skip inside intersection
+    for &offset in &lane_separator_offsets {
         // vertical dashes (for the horizontal traffic lanes)
         let mut y = -world_size / 2.0;
         while y < world_size / 2.0 {
             let center_y = y + dash_len / 2.0;
+            // Skip dashes that would be in the intersection area
             if center_y.abs() > intersection_half {
                 commands.spawn(SpriteBundle {
                     sprite: Sprite {
                         color: Color::WHITE,
-                        custom_size: Some(Vec2::new(4.0, dash_len)),
+                        custom_size: Some(Vec2::new(3.0, dash_len)),
                         ..default()
                     },
                     transform: Transform::from_translation(Vec3::new(offset, center_y, 1.0)),
@@ -86,11 +125,12 @@ pub fn setup_roads(mut commands: Commands, config: Res<RoadConfig>) {
         let mut x = -world_size / 2.0;
         while x < world_size / 2.0 {
             let center_x = x + dash_len / 2.0;
+            // Skip dashes that would be in the intersection area
             if center_x.abs() > intersection_half {
                 commands.spawn(SpriteBundle {
                     sprite: Sprite {
                         color: Color::WHITE,
-                        custom_size: Some(Vec2::new(dash_len, 4.0)),
+                        custom_size: Some(Vec2::new(dash_len, 3.0)),
                         ..default()
                     },
                     transform: Transform::from_translation(Vec3::new(center_x, offset, 1.0)),
@@ -100,30 +140,6 @@ pub fn setup_roads(mut commands: Commands, config: Res<RoadConfig>) {
             x += dash_len + gap;
         }
     }
-
-    // Draw a center separator between opposing directions (a small median strip)
-    let separator_width = 8.0f32;
-    // Vertical median (separates left/right lanes)
-    commands.spawn(SpriteBundle {
-        sprite: Sprite {
-            color: Color::rgb(0.1, 0.1, 0.1),
-            custom_size: Some(Vec2::new(separator_width, world_size)),
-            ..default()
-        },
-        transform: Transform::from_translation(Vec3::new(0.0, 0.0, 2.0)),
-        ..default()
-    });
-
-    // Horizontal median
-    commands.spawn(SpriteBundle {
-        sprite: Sprite {
-            color: Color::rgb(0.1, 0.1, 0.1),
-            custom_size: Some(Vec2::new(world_size, separator_width)),
-            ..default()
-        },
-        transform: Transform::from_translation(Vec3::new(0.0, 0.0, 2.0)),
-        ..default()
-    });
 
     // Draw per-approach solid borders only for lanes that move towards the square
     let border_thickness = 6.0f32;

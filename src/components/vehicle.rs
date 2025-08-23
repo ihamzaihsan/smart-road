@@ -52,8 +52,8 @@ impl Direction {
         match self {
             Direction::North => 0.0,
             Direction::South => std::f32::consts::PI,
-            Direction::East => -std::f32::consts::PI / 2.0,
-            Direction::West => std::f32::consts::PI / 2.0,
+            Direction::East => std::f32::consts::PI / 2.0,
+            Direction::West => -std::f32::consts::PI / 2.0,
         }
     }
 }
