@@ -6,7 +6,7 @@ impl SafetyManager {
     
     pub fn calculate_safety_distance(speed: f32) -> f32 {
         // Safety distance increases with speed (simplified model)
-        30.0 + (speed * 0.5)
+        60.0 + (speed * 1.5)
     }
 
     pub fn check_safe_distance(vehicle1: &Vehicle, vehicle2: &Vehicle) -> bool {
@@ -26,9 +26,9 @@ impl SafetyManager {
             let distance = (vehicle.position - other.position).magnitude();
             let required_distance = Self::calculate_safety_distance(vehicle.speed);
             
-            if distance < required_distance * 1.5 {
+            if distance < required_distance * 2.5 {
                 // Reduce speed if too close
-                safe_speed = safe_speed.min(other.speed * 0.8);
+                safe_speed = safe_speed.min(other.speed * 0.5);
             }
         }
         

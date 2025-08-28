@@ -22,7 +22,7 @@ impl TrafficOptimizer {
         // Simple optimization: maintain consistent spacing
         for vehicle in vehicles.iter_mut() {
             if vehicle.speed < 20.0 {
-                vehicle.target_speed = vehicle.target_speed.min(60.0);
+                vehicle.target_speed = vehicle.target_speed.min(40.0);
             }
         }
     }

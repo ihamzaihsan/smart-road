@@ -29,8 +29,8 @@ pub struct SimulationConfig {
 impl Default for SimulationConfig {
     fn default() -> Self {
         Self {
-            max_vehicles: 50,
-            spawn_cooldown: 0.3,
+            max_vehicles: 10,
+            spawn_cooldown: 3.0,
             cleanup_distance: 350.0,
             intersection_size: 300.0,
             detection_distance: 200.0,
@@ -49,10 +49,10 @@ pub struct PhysicsConfig {
 impl Default for PhysicsConfig {
     fn default() -> Self {
         Self {
-            max_vehicle_speed: 120.0,
-            acceleration: 50.0,
+            max_vehicle_speed: 200.0,
+            acceleration: 200.0,
             deceleration: 75.0,
-            min_safety_distance: 30.0,
+            min_safety_distance: 50.0,
         }
     }
 }

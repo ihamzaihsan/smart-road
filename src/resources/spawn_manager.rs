@@ -18,9 +18,9 @@ impl Default for SpawnManager {
         Self {
             next_id: 1,
             last_spawn_time: HashMap::new(),
-            spawn_cooldown: 0.3,  // Reduced cooldown for faster spawning
+            spawn_cooldown: 3.0,  
             spawn_distance: 300.0,
-            min_spawn_separation: 50.0,  // Reduced separation for more vehicles
+            min_spawn_separation: 80.0,  
         }
     }
 }

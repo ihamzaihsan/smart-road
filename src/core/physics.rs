@@ -1,8 +1,8 @@
 use crate::components::Vehicle;
 
-pub const MIN_SAFETY_DISTANCE: f32 = 30.0; // Minimum safety distance in pixels
-pub const MAX_ACCELERATION: f32 = 100.0;   // Maximum acceleration in pixels/s²
-pub const MAX_DECELERATION: f32 = 150.0;   // Maximum deceleration in pixels/s²
+pub const MIN_SAFETY_DISTANCE: f32 = 60.0; 
+pub const MAX_ACCELERATION: f32 = 200.0;  
+pub const MAX_DECELERATION: f32 = 80.0;  
 
 pub struct VehiclePhysics;
 
