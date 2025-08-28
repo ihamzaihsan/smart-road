@@ -24,7 +24,6 @@ pub struct Game<'a> {
 }
 
 impl<'a> Game<'a> {
-    
     pub fn new(texture_creator: &'a TextureCreator<WindowContext>) -> Result<Self, String> {
         let mut vehicle_assets = VehicleAssets::new();
 
@@ -36,6 +35,7 @@ impl<'a> Game<'a> {
                 .map_err(|e| format!("Failed to load texture {}: {}", texture_path, e))?;
             vehicle_assets.car_textures.push(texture);
         }
+
         let now = Instant::now();
         Ok(Self {
             vehicles: Vec::new(),
@@ -144,7 +144,6 @@ impl<'a> Game<'a> {
         
         for &lane_offset in &lane_centers {
             let potential_pos = self.spawn_manager.get_spawn_position(direction, lane_offset);
-            
 
             let is_safe = self.vehicles.iter().all(|vehicle| {
                 let distance = (potential_pos - vehicle.position).magnitude();
@@ -156,7 +155,7 @@ impl<'a> Game<'a> {
             }
         }
         
-        None 
+        None
     }
 
     fn find_safe_spawn_position(&self, direction: Direction) -> Option<Vector2<f32>> {
@@ -164,7 +163,6 @@ impl<'a> Game<'a> {
 
         let random_lane_offset = self.spawn_manager.get_random_lane_center(direction, &self.road_config);
         let potential_pos = self.spawn_manager.get_spawn_position(direction, random_lane_offset);
-        
 
         let is_safe = self.vehicles.iter().all(|vehicle| {
             let distance = (potential_pos - vehicle.position).magnitude();
@@ -174,7 +172,6 @@ impl<'a> Game<'a> {
         if is_safe {
             return Some(potential_pos);
         }
-        
 
         for &lane_offset in &lane_centers {
             if (lane_offset - random_lane_offset).abs() < 0.1 {
@@ -193,7 +190,7 @@ impl<'a> Game<'a> {
             }
         }
         
-        None 
+        None
     }
 
     fn spawn_vehicle_at_position(&mut self, direction: Direction, position: Vector2<f32>) {
@@ -210,7 +207,8 @@ impl<'a> Game<'a> {
             state: VehicleState::Moving,
             route: Route::Straight,
             direction,
-            target_speed: 100.0, 
+            // Start by aiming for the fastest tier; checkpoints will cap it as needed.
+            target_speed: 200.0,
             rotation,
             texture_index,
         };
@@ -219,16 +217,46 @@ impl<'a> Game<'a> {
     }
 
     fn update_vehicles(&mut self, delta_time: f32) {
+        use crate::core::physics::{
+            checkpoint_speed_limit, quantize_speed, MAX_ACCELERATION, MAX_DECELERATION,
+        };
+
         for vehicle in &mut self.vehicles {
             if vehicle.state != VehicleState::Moving {
                 continue;
             }
 
+            // Checkpoint speed policy (reduces crashes near the center)
+            let dist = vehicle.position.magnitude();
+            let limit = checkpoint_speed_limit(dist);
+            if vehicle.target_speed > limit {
+                vehicle.target_speed = limit;
+            }
 
+            // Quantize speeds to the 10 allowed levels (200 -> 40)
+            vehicle.speed = quantize_speed(vehicle.speed);
+            vehicle.target_speed = quantize_speed(vehicle.target_speed);
+
+            // Accelerate/decelerate toward target speed
             let speed_diff = vehicle.target_speed - vehicle.speed;
-            let acceleration = 50.0; 
-            vehicle.speed += speed_diff.signum() * acceleration * delta_time;
-            vehicle.speed = vehicle.speed.clamp(0.0, vehicle.target_speed);
+            let accel = if speed_diff > 0.0 {
+                MAX_ACCELERATION
+            } else if speed_diff < 0.0 {
+                -MAX_DECELERATION
+            } else {
+                0.0
+            };
+
+            vehicle.speed += accel * delta_time;
+            if speed_diff >= 0.0 {
+                if vehicle.speed > vehicle.target_speed {
+                    vehicle.speed = vehicle.target_speed;
+                }
+            } else {
+                if vehicle.speed < vehicle.target_speed {
+                    vehicle.speed = vehicle.target_speed;
+                }
+            }
 
             // Move the vehicle
             let movement = vehicle.direction.movement_vector() * vehicle.speed * delta_time;
@@ -243,7 +271,6 @@ impl<'a> Game<'a> {
             let distance_from_center = vehicle.position.magnitude();
             distance_from_center <= cleanup_distance
         });
-
     }
 
     pub fn render(&mut self, renderer: &mut Renderer) -> Result<(), String> {
