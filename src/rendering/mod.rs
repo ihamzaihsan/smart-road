@@ -2,6 +2,7 @@ use sdl2::render::{Canvas, TextureCreator};
 use sdl2::video::{Window, WindowContext};
 use sdl2::rect::Rect;
 use sdl2::pixels::Color;
+
 use crate::components::Vehicle;
 use crate::resources::{RoadConfig, VehicleAssets};
 
@@ -11,12 +12,8 @@ pub struct Renderer<'a> {
 }
 
 impl<'a> Renderer<'a> {
-    
     pub fn new(canvas: Canvas<Window>, texture_creator: &'a TextureCreator<WindowContext>) -> Self {
-        Self {
-            canvas,
-            texture_creator,
-        }
+        Self { canvas, texture_creator }
     }
 
     pub fn clear(&mut self) {
@@ -231,6 +228,26 @@ impl<'a> Renderer<'a> {
 
         for vehicle in vehicles {
             self.render_vehicle(vehicle, vehicle_assets, window_width, window_height)?;
+        }
+
+        Ok(())
+    }
+
+    /// Draw small red squares at each checkpoint for debugging visibility.
+    pub fn render_checkpoints(&mut self, checkpoints: &[nalgebra::Vector2<f32>]) -> Result<(), String> {
+        // Use the same mapping as render_vehicle (center of screen = world 0,0; Y flipped)
+        let (window_width, window_height) = self.canvas.output_size().map_err(|e| e.to_string())?;
+        let center_x = window_width as i32 / 2;
+        let center_y = window_height as i32 / 2;
+        let size: i32 = 6; // red square size
+
+        self.canvas.set_draw_color(Color::RGB(220, 30, 30));
+
+        for p in checkpoints {
+            let sx = center_x + p.x.round() as i32;
+            let sy = center_y - p.y.round() as i32;
+            let rect = Rect::new(sx - size/2, sy - size/2, size as u32, size as u32);
+            self.canvas.fill_rect(rect)?;
         }
 
         Ok(())

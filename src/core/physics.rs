@@ -1,54 +1,42 @@
 use crate::components::Vehicle;
+use nalgebra::Vector2;
 
 pub const MIN_SAFETY_DISTANCE: f32 = 60.0;
-pub const MAX_ACCELERATION: f32 = 200.0;
-pub const MAX_DECELERATION: f32 = 80.0;
+pub const MAX_ACCELERATION: f32 = 220.0;
+pub const MAX_DECELERATION: f32 = 100.0;
 
-// === Discrete speed policy ===
-// Ten speed levels linearly spaced from 200 down to 40 (inclusive).
-// You can change these if you want a different ladder.
-pub const SPEED_LEVELS: [f32; 10] = [
-    200.0, 182.2222, 164.4444, 146.6667, 128.8889,
-    111.1111, 93.3333, 75.5556, 57.7778, 40.0,
-];
+/// Exactly 4 discrete speeds (fast → slow)
+pub const SPEED_LEVELS: [f32; 4] = [400.0, 240.0, 180.0, 120.0];
 
 /// Snap any speed to the nearest allowed level (and clamp to >= 0).
 #[inline]
 pub fn quantize_speed(speed: f32) -> f32 {
     let mut closest = SPEED_LEVELS[0];
     let mut best = (speed - closest).abs();
-    let mut i = 1usize;
-    while i < SPEED_LEVELS.len() {
-        let d = (speed - SPEED_LEVELS[i]).abs();
+    for &lvl in &SPEED_LEVELS[1..] {
+        let d = (speed - lvl).abs();
         if d < best {
             best = d;
-            closest = SPEED_LEVELS[i];
+            closest = lvl;
         }
-        i += 1;
     }
     if closest < 0.0 { 0.0 } else { closest }
 }
 
-/// Compute a checkpoint-limited target speed based on distance to the intersection center.
-/// The closer to the center (0,0), the lower the allowed speed.
-/// There are 10 radial bands mapping to the 10 SPEED_LEVELS.
+/// Distance-based baseline tier tied to intersection size.
+/// `road_half_width` = lane_width * lanes_per_direction (half the total crossing).
 #[inline]
-pub fn checkpoint_speed_limit(distance_to_center: f32) -> f32 {
-    // Radii thresholds (in world units). Outside => faster; inside => slower.
-    // far (>= 450) => ~200 ... near (<= 50) => 40
-    const RADII: [f32; 10] = [450.0, 400.0, 350.0, 300.0, 250.0, 200.0, 150.0, 120.0, 90.0, 50.0];
-
-    // Find which band the car is in. If inside all radii, clamp to last (slowest) level.
-    let mut idx = 0usize;
-    while idx < RADII.len() && distance_to_center < RADII[idx] {
-        idx += 1;
-    }
-    let level = if idx >= SPEED_LEVELS.len() {
-        *SPEED_LEVELS.last().unwrap()
+pub fn speed_tier_from_distance(dist: f32, road_half_width: f32) -> f32 {
+   
+    if dist >= 2.0 * road_half_width {
+        SPEED_LEVELS[0] 
+    } else if dist <= 1.0 * road_half_width {
+        SPEED_LEVELS[1] 
+    } else if dist <= 0.5 * road_half_width {
+        SPEED_LEVELS[2] 
     } else {
-        SPEED_LEVELS[idx]
-    };
-    quantize_speed(level)
+        SPEED_LEVELS[3] 
+    }
 }
 
 pub struct VehiclePhysics;
@@ -56,23 +44,16 @@ pub struct VehiclePhysics;
 impl VehiclePhysics {
     /// Safety distance increases with speed.
     pub fn calculate_safety_distance(speed: f32) -> f32 {
-        MIN_SAFETY_DISTANCE + (speed * 0.5)
+        MIN_SAFETY_DISTANCE + (speed * 0.6)
     }
 
-    /// Integrate vehicle motion with discrete speeds + checkpoint-based caps.
+    /// Integrate vehicle motion toward `vehicle.target_speed` (already chosen by game logic).
     pub fn update_vehicle_physics(vehicle: &mut Vehicle, delta_time: f32) {
-        // 1) Apply checkpoint limit based on distance to intersection center
-        let dist = vehicle.position.magnitude();
-        let checkpoint_limit = checkpoint_speed_limit(dist);
-        if vehicle.target_speed > checkpoint_limit {
-            vehicle.target_speed = checkpoint_limit;
-        }
-
-        // 2) Quantize current and target speeds to the nearest allowed levels
+        // Quantize both current and target speeds to the 4-level policy
         vehicle.speed = quantize_speed(vehicle.speed);
         vehicle.target_speed = quantize_speed(vehicle.target_speed);
 
-        // 3) Calculate acceleration towards target speed using discrete accel/decel
+        // Accelerate / decelerate toward target
         let speed_diff = vehicle.target_speed - vehicle.speed;
         let acceleration = if speed_diff > 0.0 {
             MAX_ACCELERATION
@@ -82,7 +63,7 @@ impl VehiclePhysics {
             0.0
         };
 
-        // 4) Integrate speed with time step and clamp between 0 and target
+        // Integrate speed with time step and clamp between 0 and target
         vehicle.speed += acceleration * delta_time;
         if speed_diff >= 0.0 {
             if vehicle.speed > vehicle.target_speed {
@@ -94,7 +75,7 @@ impl VehiclePhysics {
             }
         }
 
-        // 5) Move along the direction vector
+        // Move along the direction vector
         let movement = vehicle.direction.movement_vector() * vehicle.speed * delta_time;
         vehicle.position += movement;
     }
@@ -104,5 +85,13 @@ impl VehiclePhysics {
         let distance = (vehicle1.position - vehicle2.position).magnitude();
         let required_distance = Self::calculate_safety_distance(vehicle1.speed.max(vehicle2.speed));
         distance >= required_distance
+    }
+
+    /// Utility: compute ETA (time to reach a point) using current speed or a fallback.
+    /// If the vehicle is practically stopped, use its target speed for ETA.
+    pub fn time_to_point(vehicle: &Vehicle, point: Vector2<f32>) -> f32 {
+        let dist = (point - vehicle.position).magnitude();
+        let v = if vehicle.speed > 1.0 { vehicle.speed } else { vehicle.target_speed.max(1.0) };
+        dist / v
     }
 }
