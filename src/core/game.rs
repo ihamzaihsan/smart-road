@@ -111,7 +111,7 @@ impl<'a> Game<'a> {
 
         if let Some(direction) = spawn_direction {
             if self.spawn_manager.can_spawn(direction, current_time_f64) {
-                if let Some(spawn_pos) = self.find_safe_spawn_position_fixed_lane(direction) {
+                if let Some(spawn_pos) = self.find_safe_spawn_position(direction) {
                     self.spawn_vehicle_at_position(direction, spawn_pos);
                     self.spawn_manager.record_spawn(direction, current_time_f64);
                 }

@@ -30,7 +30,7 @@ pub fn handle_keyboard_spawning(
 
     if let Some(direction) = spawn_direction {
         if spawn_manager.can_spawn(direction, current_time) {
-            if let Some(spawn_pos) = find_safe_spawn_position_fixed_lane(
+            if let Some(spawn_pos) = find_safe_spawn_position(
                 direction,
                 &spawn_manager,
                 &road_config,
