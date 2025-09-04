@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod scheduler_tests {
-    use crate::util::geom::{Point, distance, lane_center};
+    use crate::utils::geometry::{Point, distance, lane_center};
 
     #[test]
     fn basic_geom_works() {
