@@ -29,7 +29,7 @@ pub struct SimulationConfig {
 impl Default for SimulationConfig {
     fn default() -> Self {
         Self {
-            max_vehicles: 10,
+            max_vehicles: 20,
             spawn_cooldown: 3.0,
             cleanup_distance: 350.0,
             intersection_size: 300.0,

@@ -18,9 +18,9 @@ impl Default for SpawnManager {
         Self {
             next_id: 1,
             last_spawn_time: HashMap::new(),
-            spawn_cooldown: 3.0,  
+            spawn_cooldown: 2.0,  
             spawn_distance: 300.0,
-            min_spawn_separation: 80.0,  
+            min_spawn_separation: 90.0,  
         }
     }
 }
@@ -110,8 +110,8 @@ impl Default for AutoSpawnTimer {
     fn default() -> Self {
         Self {
             last_spawn_time: Instant::now(),
-            spawn_interval: 0.5,  // Fast spawning - 0.3 second interval
-            enabled: false,       // Disabled by default - toggle with R key
+            spawn_interval: 0.3,  
+            enabled: false,      
         }
     }
 }

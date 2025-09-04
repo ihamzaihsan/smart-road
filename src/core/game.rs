@@ -333,15 +333,16 @@ impl<'a> Game<'a> {
 
             // Choose leader if arrivals are within a window
             const ETA_WINDOW: f32 = 1.2; // seconds
+            const LEADER_DISTANCE_MULTIPLIER: f32 = 1.2;
              let leader = &group.clone()[0];
-            // Leader speed: 200 if still outside ~1.2×half-width, otherwise 140
-            let leader_speed = if leader.dist >= 1.2 * road_half_width { SPEED_LEVELS[0] } else { SPEED_LEVELS[1] };
+            // Leader speed: 600 if still outside ~1.2×half-width, otherwise 440
+            let leader_speed = if leader.dist >= LEADER_DISTANCE_MULTIPLIER * road_half_width { SPEED_LEVELS[0] } else { SPEED_LEVELS[2] };
             self.vehicles[leader.veh_idx].target_speed = leader_speed;
 
-            // Everyone else yields: use 40 if very tight, else 80
+            // Everyone else yields: use 200 if very tight, else 360
             for follower in group.into_iter().skip(1) {
                 let dt = (follower.eta - leader.eta).abs();
-                let desired = if dt <= ETA_WINDOW { SPEED_LEVELS[3] } else { SPEED_LEVELS[2] };
+                let desired = if dt <= ETA_WINDOW { SPEED_LEVELS[5] } else { SPEED_LEVELS[3] };
                 // Also cap by distance policy
                 let cap = speed_tier_from_distance(follower.dist, road_half_width);
                 self.vehicles[follower.veh_idx].target_speed = desired.min(cap);
