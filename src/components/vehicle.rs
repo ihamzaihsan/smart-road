@@ -10,7 +10,9 @@ pub struct Vehicle {
     pub direction: Direction,
     pub target_speed: f32,
     pub rotation: f32,  
-    pub texture_index: usize, 
+    pub texture_index: usize,
+    pub path: Vec<Vector2<f32>>,
+    pub path_index: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,5 +55,34 @@ impl Direction {
             Direction::East => std::f32::consts::PI / 2.0,
             Direction::West => -std::f32::consts::PI / 2.0,
         }
+    }
+}
+
+impl Vehicle {
+    /// Gets the current waypoint the vehicle is heading towards
+    pub fn get_current_waypoint(&self) -> Option<Vector2<f32>> {
+        if self.path_index < self.path.len() {
+            Some(self.path[self.path_index])
+        } else {
+            None
+        }
+    }
+
+    /// Advances to the next waypoint
+    pub fn advance_waypoint(&mut self) {
+        if self.path_index < self.path.len() {
+            self.path_index += 1;
+        }
+    }
+
+    /// Checks if the vehicle has reached its destination
+    pub fn has_reached_destination(&self) -> bool {
+        self.path_index >= self.path.len()
+    }
+
+    /// Sets a new path for the vehicle
+    pub fn set_path(&mut self, path: Vec<Vector2<f32>>) {
+        self.path = path;
+        self.path_index = 0;
     }
 }
