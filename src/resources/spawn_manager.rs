@@ -8,7 +8,9 @@ use instant::Instant;
 pub struct SpawnManager {
     pub next_id: u64,
     pub last_spawn_time: HashMap<Direction, f64>,
+    pub last_lane_spawn_time: HashMap<(Direction, usize), f64>,
     pub spawn_cooldown: f64,
+    pub lane_cooldown: f64,
     pub spawn_distance: f32,
     pub min_spawn_separation: f32,
 }
@@ -18,7 +20,9 @@ impl Default for SpawnManager {
         Self {
             next_id: 1,
             last_spawn_time: HashMap::new(),
-            spawn_cooldown: 2.0,  
+            last_lane_spawn_time: HashMap::new(),
+            spawn_cooldown: 0.4,  // Per-direction cooldown
+            lane_cooldown: 1.0,   // Per-lane cooldown
             spawn_distance: 300.0,
             min_spawn_separation: 90.0,  
         }
@@ -39,8 +43,33 @@ impl SpawnManager {
         }
     }
 
+    pub fn can_spawn_in_lane(&self, direction: Direction, lane_index: usize, current_time: f64) -> bool {
+        let key = (direction, lane_index);
+        match self.last_lane_spawn_time.get(&key) {
+            Some(&last_time) => current_time - last_time >= self.lane_cooldown,
+            None => true,
+        }
+    }
+
+    pub fn find_available_lane(&self, direction: Direction, road_config: &crate::resources::RoadConfig, current_time: f64) -> Option<usize> {
+        let lane_count = road_config.num_lanes;
+        
+        // Try to find an available lane
+        for lane_index in 0..lane_count {
+            if self.can_spawn_in_lane(direction, lane_index, current_time) {
+                return Some(lane_index);
+            }
+        }
+        None
+    }
+
     pub fn record_spawn(&mut self, direction: Direction, time: f64) {
         self.last_spawn_time.insert(direction, time);
+    }
+
+    pub fn record_lane_spawn(&mut self, direction: Direction, lane_index: usize, time: f64) {
+        let key = (direction, lane_index);
+        self.last_lane_spawn_time.insert(key, time);
     }
 
     pub fn get_spawn_position(&self, direction: Direction, lane_offset: f32) -> Vector2<f32> {
@@ -75,6 +104,15 @@ impl SpawnManager {
                 // Use left group of lanes (vehicles moving towards negative direction)
                 all_lane_centers.into_iter().take(lanes_per_direction).collect()
             }
+        }
+    }
+
+    pub fn get_lane_center_by_index(&self, direction: Direction, lane_index: usize, road_config: &crate::resources::RoadConfig) -> f32 {
+        let lane_centers = self.get_lane_centers(direction, road_config);
+        if lane_index < lane_centers.len() {
+            lane_centers[lane_index]
+        } else {
+            lane_centers[0] // Fallback to first lane
         }
     }
 
