@@ -8,7 +8,9 @@ use instant::Instant;
 pub struct SpawnManager {
     pub next_id: u64,
     pub last_spawn_time: HashMap<Direction, f64>,
+    pub last_lane_spawn_time: HashMap<(Direction, usize), f64>,
     pub spawn_cooldown: f64,
+    pub lane_cooldown: f64,
     pub spawn_distance: f32,
     pub min_spawn_separation: f32,
 }
@@ -18,9 +20,11 @@ impl Default for SpawnManager {
         Self {
             next_id: 1,
             last_spawn_time: HashMap::new(),
-            spawn_cooldown: 1.0,  
+            last_lane_spawn_time: HashMap::new(),
+            spawn_cooldown: 0.4,  // Per-direction cooldown
+            lane_cooldown: 1.0,   // Per-lane cooldown
             spawn_distance: 300.0,
-            min_spawn_separation: 80.0,  
+            min_spawn_separation: 90.0,  
         }
     }
 }
@@ -41,6 +45,38 @@ impl SpawnManager {
 
     pub fn record_spawn(&mut self, direction: Direction, time: f64) {
         self.last_spawn_time.insert(direction, time);
+    }
+
+    pub fn record_lane_spawn(&mut self, direction: Direction, lane_index: usize, time: f64) {
+        let key = (direction, lane_index);
+        self.last_lane_spawn_time.insert(key, time);
+    }
+
+    pub fn find_available_lane(&self, direction: Direction, road_config: &crate::resources::RoadConfig, current_time: f64) -> Option<usize> {
+        let lane_centers = self.get_lane_centers(direction, road_config);
+        
+        for (i, _) in lane_centers.iter().enumerate() {
+            let key = (direction, i);
+            match self.last_lane_spawn_time.get(&key) {
+                Some(&last_time) => {
+                    if current_time - last_time >= self.lane_cooldown {
+                        return Some(i);
+                    }
+                }
+                None => return Some(i),
+            }
+        }
+        
+        None
+    }
+
+    pub fn get_lane_center_by_index(&self, direction: Direction, lane_index: usize, road_config: &crate::resources::RoadConfig) -> f32 {
+        let lane_centers = self.get_lane_centers(direction, road_config);
+        if lane_index < lane_centers.len() {
+            lane_centers[lane_index]
+        } else {
+            lane_centers[0] // Fallback to first lane
+        }
     }
 
     pub fn get_spawn_position(&self, direction: Direction, lane_offset: f32) -> Vector2<f32> {
