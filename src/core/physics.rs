@@ -1,75 +1,50 @@
 use crate::components::Vehicle;
 use nalgebra::Vector2;
 use std::collections::HashMap;
-
-pub const MIN_SAFETY_DISTANCE: f32 = 50.0;
-pub const MAX_ACCELERATION: f32 = 700.0;
-pub const MAX_DECELERATION: f32 = 1200.0; // Increased for harder braking
-
-/// Defines twelve discrete speed levels for finer control, from fastest to slowest.
+pub const MIN_SAFETY_DISTANCE: f32 = 75.0;
+pub const MAX_ACCELERATION: f32 = 400.0;
+pub const MAX_DECELERATION: f32 = 2000.0;
+pub const EMERGENCY_DECELERATION: f32 = 3000.0;
 pub const SPEED_LEVELS: [f32; 12] = [
-    600.0, 540.0, 480.0, 420.0, 360.0, 300.0, 
-    260.0, 220.0, 180.0, 140.0, 100.0, 60.0 
+    400.0, 270.0, 240.0, 210.0, 180.0, 150.0,
+    120.0, 100.0, 80.0, 60.0, 40.0, 20.0
 ];
-
-/// Time headway constant for following distance (in seconds)
-pub const TIME_HEADWAY: f32 = 1.1;
-/// Minimum buffer distance regardless of speed
-pub const MIN_BUFFER_DISTANCE: f32 = 80.0;
-
-/// Hysteresis band as a percentage of current speed to prevent flapping
-pub const HYSTERESIS_BAND: f32 = 0.08;
-
-/// Conflict reservation window duration (seconds)
-pub const CONFLICT_RESERVATION_WINDOW: f32 = 0.45;
-
-/// Simple conflict calendar to manage intersection reservations
+pub const TIME_HEADWAY: f32 = 2.0;
+pub const MIN_BUFFER_DISTANCE: f32 = 120.0;
+pub const CRITICAL_DISTANCE: f32 = 60.0;
+pub const HYSTERESIS_BAND: f32 = 0.12;
+pub const CONFLICT_RESERVATION_WINDOW: f32 = 0.8;
 #[derive(Debug)]
 pub struct ConflictCalendar {
-    /// Maps snapped waypoint positions to (vehicle_id, end_time)
     reservations: HashMap<(i32, i32), (u64, f32)>,
 }
-
 impl ConflictCalendar {
     pub fn new() -> Self {
         Self {
             reservations: HashMap::new(),
         }
     }
-
-    /// Snaps a position to a grid cell for conflict detection
     fn snap_position(pos: Vector2<f32>) -> (i32, i32) {
         const CELL_SIZE: f32 = 20.0;
         ((pos.x / CELL_SIZE).round() as i32, (pos.y / CELL_SIZE).round() as i32)
     }
-
-    /// Attempts to reserve a conflict point for a vehicle
     pub fn try_reserve(&mut self, vehicle_id: u64, position: Vector2<f32>, start_time: f32, current_time: f32) -> Result<(), f32> {
         let key = Self::snap_position(position);
         let end_time = start_time + CONFLICT_RESERVATION_WINDOW;
-
-        // Clean up expired reservations
         self.reservations.retain(|_, (_, expiry)| *expiry > current_time);
-
         if let Some((existing_id, existing_end)) = self.reservations.get(&key) {
             if *existing_id != vehicle_id {
-                // Conflict detected - return the time gap
                 return Err((start_time - *existing_end).abs());
             }
         }
-
-        // Reserve the slot
         self.reservations.insert(key, (vehicle_id, end_time));
         Ok(())
     }
 
-    /// Clears all reservations (useful for testing)
     pub fn clear(&mut self) {
         self.reservations.clear();
     }
 }
-
-/// Snaps a given speed to the nearest discrete speed level.
 #[inline]
 pub fn quantize_speed(speed: f32) -> f32 {
     SPEED_LEVELS.iter().fold(SPEED_LEVELS[0], |closest, &level| {
@@ -80,25 +55,17 @@ pub fn quantize_speed(speed: f32) -> f32 {
         }
     })
 }
-
-/// Quantizes speed with hysteresis to prevent flapping near boundaries.
 #[inline]
 pub fn quantize_with_hysteresis(current_speed: f32, desired_speed: f32) -> f32 {
     let band = current_speed * HYSTERESIS_BAND;
-    
-    // If desired is very close to current, keep current to prevent jittering
     if (desired_speed - current_speed).abs() <= band {
         return current_speed;
     }
-    
     quantize_speed(desired_speed)
 }
-
-/// Determines a speed tier based on the vehicle's distance from a reference point.
 #[inline]
 pub fn speed_tier_from_distance(dist: f32, road_half_width: f32) -> f32 {
-    const DISTANCE_MULTIPLIERS: [f32; 6] = [3.0, 2.5, 2.0, 1.5, 1.0, 0.5];
-
+    const DISTANCE_MULTIPLIERS: [f32; 6] = [2.5, 2., 1.5, 1.0, 0.75, 0.25];
     if dist >= DISTANCE_MULTIPLIERS[0] * road_half_width {
         SPEED_LEVELS[0]
     } else if dist >= DISTANCE_MULTIPLIERS[1] * road_half_width {
@@ -115,89 +82,126 @@ pub fn speed_tier_from_distance(dist: f32, road_half_width: f32) -> f32 {
         SPEED_LEVELS[6]
     }
 }
-
-/// Maps an ETA gap to a speed cap for yielding vehicles
 #[inline]
 pub fn eta_cap_from_gap(delta_t: f32) -> f32 {
-    if delta_t < 0.4 {
-        SPEED_LEVELS[11] // 60 - emergency slow
-    } else if delta_t < 0.8 {
-        SPEED_LEVELS[9] // 140 - very slow
-    } else if delta_t < 1.2 {
-        SPEED_LEVELS[7] // 220 - slow
-    } else if delta_t < 1.8 {
-        SPEED_LEVELS[5] // 300 - medium
+    if delta_t < 0.3 {
+        SPEED_LEVELS[11]
+    } else if delta_t < 0.6 {
+        SPEED_LEVELS[10]
+    } else if delta_t < 1.0 {
+        SPEED_LEVELS[8]
+    } else if delta_t < 1.5 {
+        SPEED_LEVELS[6]
+    } else if delta_t < 2.0 {
+        SPEED_LEVELS[4]
     } else {
-        SPEED_LEVELS[3] // 420 - cruise
+        SPEED_LEVELS[2]
     }
 }
-
 pub struct VehiclePhysics;
-
 impl VehiclePhysics {
-    /// Calculates the required safety distance based on the vehicle's speed.
     pub fn calculate_safety_distance(speed: f32) -> f32 {
-        // Time-headway model: distance = speed * time_headway + buffer
-        speed * TIME_HEADWAY + MIN_BUFFER_DISTANCE
+        (speed * TIME_HEADWAY + MIN_BUFFER_DISTANCE).max(MIN_SAFETY_DISTANCE)
     }
-
-    /// Updates the vehicle's physics based on its target speed and environmental factors.
+    pub fn check_emergency_brake_needed(vehicle: &Vehicle, other: &Vehicle) -> bool {
+        let distance = (vehicle.position - other.position).magnitude();
+        let relative_speed = vehicle.speed - other.speed;
+        if relative_speed > 0.0 {
+            let time_to_collision = distance / relative_speed;
+            time_to_collision < 1.0 && distance < CRITICAL_DISTANCE * 2.0
+        } else {
+            false
+        }
+    }
+    pub fn detect_collision_risk(vehicle: &Vehicle, other_vehicles: &[Vehicle]) -> (bool, f32) {
+        let mut min_safe_speed = vehicle.target_speed;
+        let mut emergency_brake = false;
+        for other in other_vehicles {
+            if other.id == vehicle.id {
+                continue;
+            }
+            let distance = (vehicle.position - other.position).magnitude();
+            if Self::are_on_collision_course(vehicle, other) {
+                if Self::check_emergency_brake_needed(vehicle, other) {
+                    emergency_brake = true;
+                    min_safe_speed = 0.0;
+                    break;
+                }
+                let safe_distance = Self::calculate_safety_distance(vehicle.speed);
+                if distance < safe_distance * 2.0 {
+                    let safety_factor = (distance / safe_distance).clamp(0.1, 1.0);
+                    let safe_speed = other.speed * safety_factor * 0.8;
+                    min_safe_speed = min_safe_speed.min(safe_speed);
+                }
+            }
+        }
+        (emergency_brake, min_safe_speed)
+    }
+    pub fn are_on_collision_course(vehicle1: &Vehicle, vehicle2: &Vehicle) -> bool {
+        let distance = (vehicle1.position - vehicle2.position).magnitude();
+        if distance > 300.0 {
+            return false;
+        }
+        let relative_position = vehicle2.position - vehicle1.position;
+        let vehicle1_direction = vehicle1.direction.movement_vector();
+        let vehicle2_direction = vehicle2.direction.movement_vector();
+        if vehicle1.direction == vehicle2.direction {
+            let to_other = relative_position.normalize();
+            let alignment = vehicle1_direction.dot(&to_other);
+            return alignment > 0.7;
+        }
+        let v1_future = vehicle1.position + vehicle1_direction * distance;
+        let v2_future = vehicle2.position + vehicle2_direction * distance;
+        let future_distance = (v1_future - v2_future).magnitude();
+        future_distance < 80.0
+    }
     pub fn update_vehicle_physics(vehicle: &mut Vehicle, delta_time: f32) {
         let speed_diff = vehicle.target_speed - vehicle.speed;
-        
         let acceleration = if speed_diff > 0.0 {
             Self::get_max_acceleration(vehicle.speed)
         } else if speed_diff < 0.0 {
-            -Self::get_max_deceleration(vehicle.speed)
+            if vehicle.target_speed < 30.0 && vehicle.speed > 100.0 {
+                -EMERGENCY_DECELERATION
+            } else {
+                -Self::get_max_deceleration(vehicle.speed)
+            }
         } else {
             0.0
         };
-
         vehicle.speed += acceleration * delta_time;
-        vehicle.speed = vehicle.speed.clamp(0.0, vehicle.target_speed);
-
-        // Move vehicle along its fixed direction vector, ensuring no deviation.
+        vehicle.speed = vehicle.speed.clamp(0.0, vehicle.target_speed.max(vehicle.speed * 0.95));
         let movement_vector = vehicle.direction.movement_vector();
         vehicle.position += movement_vector * vehicle.speed * delta_time;
-
-        // Advance waypoint if passed. This is crucial for speed control logic in game.rs.
         if let Some(waypoint) = vehicle.get_current_waypoint() {
             let to_waypoint = waypoint - vehicle.position;
-            // If the dot product is negative, the waypoint is "behind" the vehicle relative to its direction of travel.
             if to_waypoint.dot(&movement_vector) < 0.0 {
                 vehicle.advance_waypoint();
             }
         }
     }
-
-    /// Determines the maximum acceleration for a vehicle based on its current speed.
     fn get_max_acceleration(speed: f32) -> f32 {
-        if speed < SPEED_LEVELS[4] { // 280.0
+        if speed < SPEED_LEVELS[6] {
             MAX_ACCELERATION
-        } else if speed < SPEED_LEVELS[1] { // 520.0
-            MAX_ACCELERATION * 0.85
+        } else if speed < SPEED_LEVELS[3] {
+            MAX_ACCELERATION * 0.8
         } else {
-            MAX_ACCELERATION * 0.7
+            MAX_ACCELERATION * 0.6
         }
     }
-
-    /// Determines the maximum deceleration for a vehicle based on its current speed.
     fn get_max_deceleration(speed: f32) -> f32 {
-        if speed > SPEED_LEVELS[2] { // 440.0
-            MAX_DECELERATION * 1.5
+        if speed > SPEED_LEVELS[2] {
+            MAX_DECELERATION * 1.8
+        } else if speed > SPEED_LEVELS[5] {
+            MAX_DECELERATION * 1.4
         } else {
             MAX_DECELERATION
         }
     }
-
-    /// Checks if two vehicles are maintaining a safe distance from each other.
     pub fn check_safe_distance(vehicle1: &Vehicle, vehicle2: &Vehicle) -> bool {
         let distance = (vehicle1.position - vehicle2.position).magnitude();
         let required_distance = Self::calculate_safety_distance(vehicle1.speed.max(vehicle2.speed));
         distance >= required_distance
     }
-
-    /// Computes the estimated time for a vehicle to reach a specific point.
     pub fn time_to_point(vehicle: &Vehicle, point: Vector2<f32>) -> f32 {
         let dist = (point - vehicle.position).magnitude();
         let v = if vehicle.speed > 1.0 { vehicle.speed } else { vehicle.target_speed.max(1.0) };

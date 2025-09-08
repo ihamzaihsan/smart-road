@@ -5,7 +5,6 @@ pub struct Stats {
     pub min_speed: f32,
     pub close_calls: u64,
 }
-
 impl Stats {
     pub fn record_speed(&mut self, speed: f32) {
         if self.vehicles_passed == 0 {
