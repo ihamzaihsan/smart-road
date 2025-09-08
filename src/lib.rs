@@ -3,10 +3,8 @@ pub mod components;
 pub mod resources;
 pub mod systems;
 pub mod algorithms;
-pub mod statistics;
 pub mod rendering;
 pub mod input;
-pub mod animation;
 pub mod utils;
 
 pub use core::*;

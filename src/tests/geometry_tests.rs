@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod scheduler_tests {
+mod geometry_tests {
     use crate::utils::geometry::{Point, distance, lane_center};
 
     #[test]
