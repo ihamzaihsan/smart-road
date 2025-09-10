@@ -1,5 +1,5 @@
 use crate::components::Vehicle;
-use crate::core::VehiclePhysics;
+use crate::core::physics::VehiclePhysics;
 pub struct SafetyManager;
 impl SafetyManager {
     pub fn calculate_safe_speed(vehicle: &Vehicle, other_vehicle: &Vehicle) -> Option<f32> {

@@ -1,13 +1,12 @@
 use crate::components::Vehicle;
 use nalgebra::Vector2;
 use std::collections::HashMap;
-pub const MIN_SAFETY_DISTANCE: f32 = 75.0;
-pub const MAX_ACCELERATION: f32 = 400.0;
+pub const MIN_SAFETY_DISTANCE: f32 = 100.0;
+pub const MAX_ACCELERATION: f32 = 3000.0;
 pub const MAX_DECELERATION: f32 = 2000.0;
 pub const EMERGENCY_DECELERATION: f32 = 3000.0;
 pub const SPEED_LEVELS: [f32; 12] = [
-    400.0, 270.0, 240.0, 210.0, 180.0, 150.0,
-    120.0, 100.0, 80.0, 60.0, 40.0, 20.0
+    3000.0, 2500.0, 2000.0, 1800.0, 1600.0, 1400.0, 1200.0, 1000.0, 600.0, 400.0, 200.0, 100.0,
 ];
 pub const TIME_HEADWAY: f32 = 2.0;
 pub const MIN_BUFFER_DISTANCE: f32 = 120.0;
@@ -47,61 +46,80 @@ impl ConflictCalendar {
 }
 #[inline]
 pub fn quantize_speed(speed: f32) -> f32 {
-    SPEED_LEVELS.iter().fold(SPEED_LEVELS[0], |closest, &level| {
-        if (speed - level).abs() < (speed - closest).abs() {
-            level
-        } else {
-            closest
+    match SPEED_LEVELS.binary_search_by(|level| level.partial_cmp(&speed).unwrap().reverse()) {
+        Ok(index) => SPEED_LEVELS[index], 
+        Err(index) => {
+            if index == 0 {
+                SPEED_LEVELS[0]
+            } else if index == SPEED_LEVELS.len() {
+                SPEED_LEVELS[SPEED_LEVELS.len() - 1]
+            } else {
+                let upper_bound = SPEED_LEVELS[index - 1];
+                let lower_bound = SPEED_LEVELS[index];
+                if (upper_bound - speed) <= (speed - lower_bound) {
+                    upper_bound
+                } else {
+                    lower_bound
+                }
+            }
         }
-    })
+    }
 }
+
 #[inline]
 pub fn quantize_with_hysteresis(current_speed: f32, desired_speed: f32) -> f32 {
-    let band = current_speed * HYSTERESIS_BAND;
+    let band = current_speed * (HYSTERESIS_BAND + 0.03);
     if (desired_speed - current_speed).abs() <= band {
         return current_speed;
     }
     quantize_speed(desired_speed)
 }
+
 #[inline]
 pub fn speed_tier_from_distance(dist: f32, road_half_width: f32) -> f32 {
-    const DISTANCE_MULTIPLIERS: [f32; 6] = [2.5, 2., 1.5, 1.0, 0.75, 0.25];
-    if dist >= DISTANCE_MULTIPLIERS[0] * road_half_width {
-        SPEED_LEVELS[0]
-    } else if dist >= DISTANCE_MULTIPLIERS[1] * road_half_width {
-        SPEED_LEVELS[1]
-    } else if dist >= DISTANCE_MULTIPLIERS[2] * road_half_width {
-        SPEED_LEVELS[2]
-    } else if dist >= DISTANCE_MULTIPLIERS[3] * road_half_width {
-        SPEED_LEVELS[3]
-    } else if dist >= DISTANCE_MULTIPLIERS[4] * road_half_width {
-        SPEED_LEVELS[4]
-    } else if dist >= DISTANCE_MULTIPLIERS[5] * road_half_width {
-        SPEED_LEVELS[5]
-    } else {
-        SPEED_LEVELS[6]
+    const DISTANCE_TIERS: &[(f32, usize)] = &[
+        (3.5, 0),  
+        (3.0, 1),
+        (2.75, 2),
+        (2.5, 3),
+        (2.25, 4),
+        (1.75, 5),
+        (1.25, 6),
+    ];
+
+    for &(multiplier, speed_index) in DISTANCE_TIERS {
+        if dist >= multiplier * road_half_width {
+            return SPEED_LEVELS[speed_index];
+        }
     }
+    
+    SPEED_LEVELS[8]
 }
 #[inline]
 pub fn eta_cap_from_gap(delta_t: f32) -> f32 {
-    if delta_t < 0.3 {
-        SPEED_LEVELS[11]
-    } else if delta_t < 0.6 {
-        SPEED_LEVELS[10]
-    } else if delta_t < 1.0 {
-        SPEED_LEVELS[8]
-    } else if delta_t < 1.5 {
-        SPEED_LEVELS[6]
-    } else if delta_t < 2.0 {
-        SPEED_LEVELS[4]
-    } else {
-        SPEED_LEVELS[2]
+    const GAP_TIERS: &[(f32, usize)] = &[
+        (0.25, 11), 
+        (0.75, 10),
+        (1.0, 9),
+        (1.25, 8),
+        (1.5, 7),
+        (2.0, 6),
+    ];
+
+    for &(gap, speed_index) in GAP_TIERS {
+        if delta_t < gap {
+            return SPEED_LEVELS[speed_index];
+        }
     }
+    
+    SPEED_LEVELS[4] 
 }
 pub struct VehiclePhysics;
 impl VehiclePhysics {
     pub fn calculate_safety_distance(speed: f32) -> f32 {
-        (speed * TIME_HEADWAY + MIN_BUFFER_DISTANCE).max(MIN_SAFETY_DISTANCE)
+        let reaction_distance = speed * TIME_HEADWAY;
+        let braking_distance = (speed * speed) / (2.0 * MAX_DECELERATION);
+        (reaction_distance + braking_distance + MIN_BUFFER_DISTANCE).max(MIN_SAFETY_DISTANCE)
     }
     pub fn check_emergency_brake_needed(vehicle: &Vehicle, other: &Vehicle) -> bool {
         let distance = (vehicle.position - other.position).magnitude();
@@ -180,31 +198,68 @@ impl VehiclePhysics {
         }
     }
     fn get_max_acceleration(speed: f32) -> f32 {
-        if speed < SPEED_LEVELS[6] {
-            MAX_ACCELERATION
-        } else if speed < SPEED_LEVELS[3] {
-            MAX_ACCELERATION * 0.8
-        } else {
-            MAX_ACCELERATION * 0.6
+        const ACCEL_TIERS: &[(f32, f32)] = &[(0.0, 1.0), (SPEED_LEVELS[3], 0.6)];
+
+        let (lower_speed, lower_factor) = ACCEL_TIERS[0];
+        let (upper_speed, upper_factor) = ACCEL_TIERS[1];
+
+        if speed <= lower_speed {
+            return MAX_ACCELERATION * lower_factor;
         }
+        if speed >= upper_speed {
+            return MAX_ACCELERATION * upper_factor;
+        }
+
+        let factor = (speed - lower_speed) / (upper_speed - lower_speed);
+        let interpolated_factor = lower_factor + factor * (upper_factor - lower_factor);
+        
+        MAX_ACCELERATION * interpolated_factor
     }
+
     fn get_max_deceleration(speed: f32) -> f32 {
-        if speed > SPEED_LEVELS[2] {
-            MAX_DECELERATION * 1.8
-        } else if speed > SPEED_LEVELS[5] {
-            MAX_DECELERATION * 1.4
-        } else {
-            MAX_DECELERATION
+        const DECEL_TIERS: &[(f32, f32)] = &[(SPEED_LEVELS[5], 1.0), (SPEED_LEVELS[2], 1.8)];
+
+        let (lower_speed, lower_factor) = DECEL_TIERS[0];
+        let (upper_speed, upper_factor) = DECEL_TIERS[1];
+
+        if speed <= lower_speed {
+            return MAX_DECELERATION * lower_factor;
         }
+        if speed >= upper_speed {
+            return MAX_DECELERATION * upper_factor;
+        }
+
+        let factor = (speed - lower_speed) / (upper_speed - lower_speed);
+        let interpolated_factor = lower_factor + factor * (upper_factor - lower_factor);
+
+        MAX_DECELERATION * interpolated_factor
     }
     pub fn check_safe_distance(vehicle1: &Vehicle, vehicle2: &Vehicle) -> bool {
         let distance = (vehicle1.position - vehicle2.position).magnitude();
-        let required_distance = Self::calculate_safety_distance(vehicle1.speed.max(vehicle2.speed));
+        let relative_speed = vehicle1.speed - vehicle2.speed;
+        
+        let required_distance = if relative_speed > 0.0 {
+            let time_to_close_gap = distance / relative_speed;
+            let stopping_time = vehicle1.speed / MAX_DECELERATION;
+            Self::calculate_safety_distance(vehicle1.speed) + (relative_speed * (time_to_close_gap - stopping_time)).max(0.0)
+        } else {
+            Self::calculate_safety_distance(vehicle1.speed)
+        };
+
         distance >= required_distance
     }
+
     pub fn time_to_point(vehicle: &Vehicle, point: Vector2<f32>) -> f32 {
+        const EPSILON: f32 = 1e-6;
         let dist = (point - vehicle.position).magnitude();
-        let v = if vehicle.speed > 1.0 { vehicle.speed } else { vehicle.target_speed.max(1.0) };
-        dist / v
+        
+        let speed_at_point = (vehicle.speed.powi(2) + 2.0 * MAX_ACCELERATION * dist).sqrt();
+        let average_speed = (vehicle.speed + speed_at_point) / 2.0;
+
+        if average_speed < EPSILON {
+            f32::MAX 
+        } else {
+            dist / average_speed
+        }
     }
 }

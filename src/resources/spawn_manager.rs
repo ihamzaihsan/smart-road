@@ -19,8 +19,8 @@ impl Default for SpawnManager {
             next_id: 1,
             last_spawn_time: HashMap::new(),
             last_lane_spawn_time: HashMap::new(),
-            spawn_cooldown: 0.4,
-            lane_cooldown: 1.0,
+            spawn_cooldown: 0.7,
+            lane_cooldown: 1.2,
             spawn_distance: 300.0,
             min_spawn_separation: 150.0,
         }
