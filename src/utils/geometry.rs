@@ -13,6 +13,11 @@ impl Point {
         (dx * dx + dy * dy).sqrt()
     }
 }
+impl From<(f32, f32)> for Point {
+    fn from(item: (f32, f32)) -> Self {
+        Point { x: item.0, y: item.1 }
+    }
+}
 pub fn lane_center(index: usize, lane_width: f32) -> Point {
     Point {
         x: 0.0,
@@ -38,6 +43,23 @@ pub fn rotate_point(point: Point, angle: f32) -> Point {
         y: point.x * sin_a + point.y * cos_a,
     }
 }
+pub fn line_intersection(p1: Point, p2: Point, p3: Point, p4: Point) -> Option<Point> {
+    let den = (p1.x - p2.x) * (p3.y - p4.y) - (p1.y - p2.y) * (p3.x - p4.x);
+    if den == 0.0 {
+        return None; // Lines are parallel
+    }
+    let t = ((p1.x - p3.x) * (p3.y - p4.y) - (p1.y - p3.y) * (p3.x - p4.x)) / den;
+    let u = -((p1.x - p2.x) * (p1.y - p3.y) - (p1.y - p2.y) * (p1.x - p3.x)) / den;
+
+    if t > 0.0 && t < 1.0 && u > 0.0 && u < 1.0 {
+        Some(Point {
+            x: p1.x + t * (p2.x - p1.x),
+            y: p1.y + t * (p2.y - p1.y),
+        })
+    } else {
+        None
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -61,5 +83,17 @@ mod tests {
         let p1 = Point::new(0.0, 0.0);
         let p2 = Point::new(3.0, 4.0);
         assert!((p1.distance_to(p2) - 5.0).abs() < 1e-6);
+    }
+    #[test]
+    fn line_intersection_test() {
+        let p1 = Point::new(0.0, 0.0);
+        let p2 = Point::new(2.0, 2.0);
+        let p3 = Point::new(0.0, 2.0);
+        let p4 = Point::new(2.0, 0.0);
+        let intersection = line_intersection(p1, p2, p3, p4);
+        assert!(intersection.is_some());
+        let ip = intersection.unwrap();
+        assert!((ip.x - 1.0).abs() < 1e-6);
+        assert!((ip.y - 1.0).abs() < 1e-6);
     }
 }

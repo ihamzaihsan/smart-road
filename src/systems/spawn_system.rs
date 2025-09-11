@@ -38,27 +38,21 @@ impl SpawnManager {
             None => true,
         }
     }
+
+    pub fn can_spawn_in_lane(&self, direction: Direction, lane_index: usize, current_time: f64) -> bool {
+        let key = (direction, lane_index);
+        match self.last_lane_spawn_time.get(&key) {
+            Some(&last_time) => current_time - last_time >= self.lane_cooldown,
+            None => true,
+        }
+    }
+
     pub fn record_spawn(&mut self, direction: Direction, time: f64) {
         self.last_spawn_time.insert(direction, time);
     }
     pub fn record_lane_spawn(&mut self, direction: Direction, lane_index: usize, time: f64) {
         let key = (direction, lane_index);
         self.last_lane_spawn_time.insert(key, time);
-    }
-    pub fn find_available_lane(&self, direction: Direction, road_config: &crate::resources::RoadConfig, current_time: f64) -> Option<usize> {
-        let lane_centers = self.get_lane_centers(direction, road_config);
-        for (i, _) in lane_centers.iter().enumerate() {
-            let key = (direction, i);
-            match self.last_lane_spawn_time.get(&key) {
-                Some(&last_time) => {
-                    if current_time - last_time >= self.lane_cooldown {
-                        return Some(i);
-                    }
-                }
-                None => return Some(i),
-            }
-        }
-        None
     }
     pub fn get_lane_center_by_index(&self, direction: Direction, lane_index: usize, road_config: &crate::resources::RoadConfig) -> f32 {
         let lane_centers = self.get_lane_centers(direction, road_config);
@@ -101,15 +95,6 @@ impl SpawnManager {
         let index = rng.gen_range(0..lane_centers.len());
         lane_centers[index]
     }
-    pub fn random_route() -> Route {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-        match rng.gen_range(0..3) {
-            0 => Route::Straight,
-            1 => Route::Left,
-            _ => Route::Right,
-        }
-    }
 }
 #[derive(Debug)]
 pub struct AutoSpawnTimer {
@@ -121,7 +106,7 @@ impl Default for AutoSpawnTimer {
     fn default() -> Self {
         Self {
             last_spawn_time: Instant::now(),
-            spawn_interval: 0.1,
+            spawn_interval: 1.0,
             enabled: false,
         }
     }
@@ -143,6 +128,15 @@ impl AutoSpawnTimer {
             1 => Direction::South,
             2 => Direction::East,
             _ => Direction::West,
+        }
+    }
+
+    pub fn random_route() -> Route {
+        let mut rng = rand::thread_rng();
+        match rng.gen_range(0..3) {
+            0 => Route::Straight,
+            1 => Route::Left,
+            _ => Route::Right,
         }
     }
 }
