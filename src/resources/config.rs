@@ -51,17 +51,3 @@ impl Default for PhysicsConfig {
         }
     }
 }
-#[derive(Debug, Clone)]
-pub struct SafetyConfig {
-    pub use_priority_speed_selection: bool,
-    pub num_speed_levels: usize,
-}
-
-impl Default for SafetyConfig {
-    fn default() -> Self {
-        Self {
-            use_priority_speed_selection: false,
-            num_speed_levels: 12,
-        }
-    }
-}

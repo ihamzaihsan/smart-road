@@ -132,8 +132,8 @@ impl<'a> Renderer<'a> {
         let center_y = window_height as f32 / 2.0;
         let screen_x = (center_x + vehicle.position.x) as i32;
         let screen_y = (center_y - vehicle.position.y) as i32;
-        let vehicle_width = 70;
-        let vehicle_height = 50;
+        let vehicle_width = 80;
+        let vehicle_height = 60;
         let dst_rect = Rect::new(
             screen_x - vehicle_width / 2,
             screen_y - vehicle_height / 2,

@@ -1,13 +1,12 @@
 use crate::components::Vehicle;
-use crate::utils::geometry::line_intersection;
 use nalgebra::Vector2;
 use std::collections::HashMap;
-pub const MIN_SAFETY_DISTANCE: f32 = 120.0;
-pub const MAX_ACCELERATION: f32 = 2000.0;
-pub const MAX_DECELERATION: f32 = 1000.0;
+pub const MIN_SAFETY_DISTANCE: f32 = 100.0;
+pub const MAX_ACCELERATION: f32 = 3000.0;
+pub const MAX_DECELERATION: f32 = 2000.0;
 pub const EMERGENCY_DECELERATION: f32 = 3000.0;
-pub const SPEED_LEVELS: [f32; 14] = [
-    2450.0, 2100.0, 1750.0, 1400.0, 1260.0, 1120.0, 980.0, 840.0, 700.0, 560.0, 420.0, 280.0, 140.0, 70.0
+pub const SPEED_LEVELS: [f32; 12] = [
+    3000.0, 2500.0, 2000.0, 1800.0, 1600.0, 1400.0, 1200.0, 1000.0, 600.0, 400.0, 200.0, 100.0,
 ];
 pub const TIME_HEADWAY: f32 = 2.0;
 pub const MIN_BUFFER_DISTANCE: f32 = 120.0;
@@ -55,7 +54,7 @@ pub fn quantize_speed(speed: f32) -> f32 {
             } else if index == SPEED_LEVELS.len() {
                 SPEED_LEVELS[SPEED_LEVELS.len() - 1]
             } else {
-                let upper_bound = SPEED_LEVELS[index -2];
+                let upper_bound = SPEED_LEVELS[index - 1];
                 let lower_bound = SPEED_LEVELS[index];
                 if (upper_bound - speed) <= (speed - lower_bound) {
                     upper_bound
@@ -69,12 +68,7 @@ pub fn quantize_speed(speed: f32) -> f32 {
 
 #[inline]
 pub fn quantize_with_hysteresis(current_speed: f32, desired_speed: f32) -> f32 {
-    let band = if desired_speed > current_speed {
-        current_speed * (HYSTERESIS_BAND + 0.05) 
-    } else {
-        current_speed * HYSTERESIS_BAND 
-    };
-
+    let band = current_speed * (HYSTERESIS_BAND + 0.03);
     if (desired_speed - current_speed).abs() <= band {
         return current_speed;
     }
@@ -109,6 +103,7 @@ pub fn eta_cap_from_gap(delta_t: f32) -> f32 {
         (1.0, 9),
         (1.25, 8),
         (1.5, 7),
+        (2.0, 6),
     ];
 
     for &(gap, speed_index) in GAP_TIERS {
@@ -121,10 +116,10 @@ pub fn eta_cap_from_gap(delta_t: f32) -> f32 {
 }
 pub struct VehiclePhysics;
 impl VehiclePhysics {
-    pub fn calculate_safety_distance(vehicle: &Vehicle, speed: f32) -> f32 {
+    pub fn calculate_safety_distance(speed: f32) -> f32 {
         let reaction_distance = speed * TIME_HEADWAY;
-        let braking_distance = (speed * speed) / (1.5 * MAX_DECELERATION);
-        (reaction_distance + braking_distance + MIN_BUFFER_DISTANCE + vehicle.length).max(MIN_SAFETY_DISTANCE)
+        let braking_distance = (speed * speed) / (2.0 * MAX_DECELERATION);
+        (reaction_distance + braking_distance + MIN_BUFFER_DISTANCE).max(MIN_SAFETY_DISTANCE)
     }
     pub fn check_emergency_brake_needed(vehicle: &Vehicle, other: &Vehicle) -> bool {
         let distance = (vehicle.position - other.position).magnitude();
@@ -150,8 +145,8 @@ impl VehiclePhysics {
                     min_safe_speed = 0.0;
                     break;
                 }
-                let safe_distance = Self::calculate_safety_distance(vehicle, vehicle.speed);
-                if distance < safe_distance * 2.5 {
+                let safe_distance = Self::calculate_safety_distance(vehicle.speed);
+                if distance < safe_distance * 2.0 {
                     let safety_factor = (distance / safe_distance).clamp(0.1, 1.0);
                     let safe_speed = other.speed * safety_factor * 0.8;
                     min_safe_speed = min_safe_speed.min(safe_speed);
@@ -160,47 +155,33 @@ impl VehiclePhysics {
         }
         (emergency_brake, min_safe_speed)
     }
-
     pub fn are_on_collision_course(vehicle1: &Vehicle, vehicle2: &Vehicle) -> bool {
-        if vehicle1.path_index >= vehicle1.path.len() || vehicle2.path_index >= vehicle2.path.len() {
+        let distance = (vehicle1.position - vehicle2.position).magnitude();
+        if distance > 300.0 {
             return false;
         }
-
-        let p1 = vehicle1.position;
-        let p2 = vehicle1.path[vehicle1.path_index];
-        let p3 = vehicle2.position;
-        let p4 = vehicle2.path[vehicle2.path_index];
-
-        if let Some(intersection_point) = line_intersection(
-            (p1.x, p1.y).into(),
-            (p2.x, p2.y).into(),
-            (p3.x, p3.y).into(),
-            (p4.x, p4.y).into(),
-        ) {
-            let dist1 = (Vector2::new(intersection_point.x, intersection_point.y) - vehicle1.position).magnitude();
-            let dist2 = (Vector2::new(intersection_point.x, intersection_point.y) - vehicle2.position).magnitude();
-
-            let time1 = dist1 / vehicle1.speed.max(1.0);
-            let time2 = dist2 / vehicle2.speed.max(1.0);
-
-            if (time1 - time2).abs() < 1.0 {
-                return true;
-            }
+        let relative_position = vehicle2.position - vehicle1.position;
+        let vehicle1_direction = vehicle1.direction.movement_vector();
+        let vehicle2_direction = vehicle2.direction.movement_vector();
+        if vehicle1.direction == vehicle2.direction {
+            let to_other = relative_position.normalize();
+            let alignment = vehicle1_direction.dot(&to_other);
+            return alignment > 0.7;
         }
-
-        false
+        let v1_future = vehicle1.position + vehicle1_direction * distance;
+        let v2_future = vehicle2.position + vehicle2_direction * distance;
+        let future_distance = (v1_future - v2_future).magnitude();
+        future_distance < 80.0
     }
-    pub fn update_vehicle_physics(vehicle: &mut Vehicle, delta_time: f32, proactive_factor: f32) {
+    pub fn update_vehicle_physics(vehicle: &mut Vehicle, delta_time: f32) {
         let speed_diff = vehicle.target_speed - vehicle.speed;
-        let dist_to_waypoint = vehicle.get_current_waypoint().map_or(f32::MAX, |wp| (wp - vehicle.position).magnitude());
-
         let acceleration = if speed_diff > 0.0 {
-            Self::get_max_acceleration(vehicle.speed, dist_to_waypoint, proactive_factor)
+            Self::get_max_acceleration(vehicle.speed)
         } else if speed_diff < 0.0 {
             if vehicle.target_speed < 30.0 && vehicle.speed > 100.0 {
                 -EMERGENCY_DECELERATION
             } else {
-                -Self::get_max_deceleration(vehicle.speed, speed_diff)
+                -Self::get_max_deceleration(vehicle.speed)
             }
         } else {
             0.0
@@ -216,44 +197,42 @@ impl VehiclePhysics {
             }
         }
     }
-    fn get_max_acceleration(speed: f32, dist_to_waypoint: f32, proactive_factor: f32) -> f32 {
+    fn get_max_acceleration(speed: f32) -> f32 {
         const ACCEL_TIERS: &[(f32, f32)] = &[(0.0, 1.0), (SPEED_LEVELS[3], 0.6)];
 
         let (lower_speed, lower_factor) = ACCEL_TIERS[0];
         let (upper_speed, upper_factor) = ACCEL_TIERS[1];
 
-        let base_accel_factor = if speed <= lower_speed {
-            lower_factor
-        } else if speed >= upper_speed {
-            upper_factor
-        } else {
-            let factor = (speed - lower_speed) / (upper_speed - lower_speed);
-            lower_factor + factor * (upper_factor - lower_factor)
-        };
+        if speed <= lower_speed {
+            return MAX_ACCELERATION * lower_factor;
+        }
+        if speed >= upper_speed {
+            return MAX_ACCELERATION * upper_factor;
+        }
 
-        let waypoint_dampening = (dist_to_waypoint / 100.0).min(1.0);
+        let factor = (speed - lower_speed) / (upper_speed - lower_speed);
+        let interpolated_factor = lower_factor + factor * (upper_factor - lower_factor);
         
-        MAX_ACCELERATION * base_accel_factor * waypoint_dampening * proactive_factor
+        MAX_ACCELERATION * interpolated_factor
     }
 
-    fn get_max_deceleration(speed: f32, speed_diff: f32) -> f32 {
+    fn get_max_deceleration(speed: f32) -> f32 {
         const DECEL_TIERS: &[(f32, f32)] = &[(SPEED_LEVELS[5], 1.0), (SPEED_LEVELS[2], 1.8)];
 
         let (lower_speed, lower_factor) = DECEL_TIERS[0];
         let (upper_speed, upper_factor) = DECEL_TIERS[1];
 
-        let base_decel_factor = if speed <= lower_speed {
-            lower_factor
-        } else if speed >= upper_speed {
-            upper_factor
-        } else {
-            let factor = (speed - lower_speed) / (upper_speed - lower_speed);
-            lower_factor + factor * (upper_factor - lower_factor)
-        };
+        if speed <= lower_speed {
+            return MAX_DECELERATION * lower_factor;
+        }
+        if speed >= upper_speed {
+            return MAX_DECELERATION * upper_factor;
+        }
 
-        let urgency_factor = (speed_diff.abs() / (SPEED_LEVELS[0] - SPEED_LEVELS[11])).clamp(1.0, 2.5);
+        let factor = (speed - lower_speed) / (upper_speed - lower_speed);
+        let interpolated_factor = lower_factor + factor * (upper_factor - lower_factor);
 
-        MAX_DECELERATION * base_decel_factor * urgency_factor
+        MAX_DECELERATION * interpolated_factor
     }
     pub fn check_safe_distance(vehicle1: &Vehicle, vehicle2: &Vehicle) -> bool {
         let distance = (vehicle1.position - vehicle2.position).magnitude();
@@ -261,9 +240,10 @@ impl VehiclePhysics {
         
         let required_distance = if relative_speed > 0.0 {
             let time_to_close_gap = distance / relative_speed;
-            Self::calculate_safety_distance(vehicle1, vehicle1.speed) + (relative_speed * time_to_close_gap).max(0.0)
+            let stopping_time = vehicle1.speed / MAX_DECELERATION;
+            Self::calculate_safety_distance(vehicle1.speed) + (relative_speed * (time_to_close_gap - stopping_time)).max(0.0)
         } else {
-            Self::calculate_safety_distance(vehicle1, vehicle1.speed)
+            Self::calculate_safety_distance(vehicle1.speed)
         };
 
         distance >= required_distance

@@ -19,10 +19,10 @@ impl Default for SpawnManager {
             next_id: 1,
             last_spawn_time: HashMap::new(),
             last_lane_spawn_time: HashMap::new(),
-            spawn_cooldown: 2.0,
-            lane_cooldown: 2.0,
+            spawn_cooldown: 0.7,
+            lane_cooldown: 1.2,
             spawn_distance: 300.0,
-            min_spawn_separation: 200.0,
+            min_spawn_separation: 150.0,
         }
     }
 }
@@ -44,6 +44,15 @@ impl SpawnManager {
             Some(&last_time) => current_time - last_time >= self.lane_cooldown,
             None => true,
         }
+    }
+    pub fn find_available_lane(&self, direction: Direction, road_config: &crate::resources::RoadConfig, current_time: f64) -> Option<usize> {
+        let lane_count = road_config.num_lanes;
+        for lane_index in 0..lane_count {
+            if self.can_spawn_in_lane(direction, lane_index, current_time) {
+                return Some(lane_index);
+            }
+        }
+        None
     }
     pub fn record_spawn(&mut self, direction: Direction, time: f64) {
         self.last_spawn_time.insert(direction, time);
@@ -113,7 +122,7 @@ impl Default for AutoSpawnTimer {
     fn default() -> Self {
         Self {
             last_spawn_time: Instant::now(),
-            spawn_interval: 1.5,
+            spawn_interval: 0.3,
             enabled: false,
         }
     }
