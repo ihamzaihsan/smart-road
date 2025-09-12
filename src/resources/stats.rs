@@ -4,6 +4,7 @@ pub struct Stats {
     pub max_speed: f32,
     pub min_speed: f32,
     pub close_calls: u64,
+    pub collisions: u64,
 }
 impl Stats {
     pub fn record_speed(&mut self, speed: f32) {

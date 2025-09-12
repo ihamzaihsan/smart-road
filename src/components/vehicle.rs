@@ -3,6 +3,8 @@ use nalgebra::Vector2;
 pub struct Vehicle {
     pub id: u64,
     pub position: Vector2<f32>,
+    pub width: f32,
+    pub length: f32,
     pub speed: f32,
     pub state: VehicleState,
     pub route: Route,
@@ -13,7 +15,7 @@ pub struct Vehicle {
     pub path: Vec<Vector2<f32>>,
     pub path_index: usize,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Route {
     Straight,
     Left,
@@ -47,6 +49,24 @@ impl Direction {
             Direction::South => std::f32::consts::PI,
             Direction::East => std::f32::consts::PI / 2.0,
             Direction::West => -std::f32::consts::PI / 2.0,
+        }
+    }
+
+    pub fn turn_left(&self) -> Self {
+        match self {
+            Direction::North => Direction::West,
+            Direction::South => Direction::East,
+            Direction::East => Direction::North,
+            Direction::West => Direction::South,
+        }
+    }
+
+    pub fn turn_right(&self) -> Self {
+        match self {
+            Direction::North => Direction::East,
+            Direction::South => Direction::West,
+            Direction::East => Direction::South,
+            Direction::West => Direction::North,
         }
     }
 }
