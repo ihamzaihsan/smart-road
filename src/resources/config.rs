@@ -5,6 +5,7 @@ pub struct RoadConfig {
     pub dash_gap: f32,
     pub num_lanes: usize,
 }
+
 impl Default for RoadConfig {
     fn default() -> Self {
         Self {
@@ -15,6 +16,7 @@ impl Default for RoadConfig {
         }
     }
 }
+
 #[derive(Debug, Clone)]
 pub struct SimulationConfig {
     pub max_vehicles: usize,
@@ -23,17 +25,19 @@ pub struct SimulationConfig {
     pub intersection_size: f32,
     pub detection_distance: f32,
 }
+
 impl Default for SimulationConfig {
     fn default() -> Self {
         Self {
-            max_vehicles: 30,
-            spawn_cooldown: 2.0,
+            max_vehicles: 20,
+            spawn_cooldown: 3.0,
             cleanup_distance: 350.0,
             intersection_size: 300.0,
             detection_distance: 200.0,
         }
     }
 }
+
 #[derive(Debug, Clone)]
 pub struct PhysicsConfig {
     pub max_vehicle_speed: f32,
@@ -41,27 +45,14 @@ pub struct PhysicsConfig {
     pub deceleration: f32,
     pub min_safety_distance: f32,
 }
+
 impl Default for PhysicsConfig {
     fn default() -> Self {
         Self {
-            max_vehicle_speed: 150.0,
-            acceleration: 150.0,
+            max_vehicle_speed: 200.0,
+            acceleration: 200.0,
             deceleration: 75.0,
             min_safety_distance: 50.0,
-        }
-    }
-}
-#[derive(Debug, Clone)]
-pub struct SafetyConfig {
-    pub use_priority_speed_selection: bool,
-    pub num_speed_levels: usize,
-}
-
-impl Default for SafetyConfig {
-    fn default() -> Self {
-        Self {
-            use_priority_speed_selection: false,
-            num_speed_levels: 12,
         }
     }
 }

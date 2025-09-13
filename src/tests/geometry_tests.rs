@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod geometry_tests {
     use crate::utils::geometry::{Point, distance, lane_center};
+
     #[test]
     fn basic_geom_works() {
         let a = Point { x: 0.0, y: 0.0 };

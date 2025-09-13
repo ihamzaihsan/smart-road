@@ -6,6 +6,7 @@ pub struct Stats {
     pub close_calls: u64,
     pub collisions: u64,
 }
+
 impl Stats {
     pub fn record_speed(&mut self, speed: f32) {
         if self.vehicles_passed == 0 {
