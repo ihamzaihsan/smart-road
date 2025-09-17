@@ -102,14 +102,24 @@ impl SpawnManager {
         }
 
         // Return appropriate lanes based on direction
+        let (negative_offset_lanes, positive_offset_lanes) = all_lane_centers.split_at(lanes_per_direction);
+
         match direction {
-            Direction::North | Direction::East => {
+            Direction::North => {
                 // Use right group of lanes (vehicles moving towards positive direction)
-                all_lane_centers.into_iter().skip(lanes_per_direction).collect()
+                positive_offset_lanes.to_vec()
             }
-            Direction::South | Direction::West => {
+            Direction::South => {
                 // Use left group of lanes (vehicles moving towards negative direction)
-                all_lane_centers.into_iter().take(lanes_per_direction).collect()
+                negative_offset_lanes.to_vec()
+            }
+            Direction::East => {
+                // Right-moving traffic should spawn in the upper lanes
+                negative_offset_lanes.to_vec()
+            }
+            Direction::West => {
+                // Left-moving traffic should spawn in the lower lanes
+                positive_offset_lanes.to_vec()
             }
         }
     }
@@ -175,3 +185,5 @@ impl AutoSpawnTimer {
         }
     }
 }
+
+
