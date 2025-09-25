@@ -57,10 +57,6 @@ impl SmartRoadExample {
 
     /// Generate waypoints for a given route
     fn generate_path_for_route(&self, approach: Direction, route: Route) -> Vec<Vector2<f32>> {
-        let intersection_center = Vector2::new(400.0, 300.0);
-        let approach_distance = 200.0;
-        let exit_distance = 200.0;
-
         match (approach, route) {
             // North approach (coming from south)
             (Direction::North, Route::Straight) => vec![
@@ -106,12 +102,51 @@ impl SmartRoadExample {
                 Vector2::new(400.0, 500.0),   // Exit (south)
             ],
 
-            // Add similar patterns for South and West approaches...
-            _ => vec![
-                intersection_center - Vector2::new(0.0, approach_distance),
-                intersection_center,
-                intersection_center + Vector2::new(0.0, exit_distance),
+            // South approach (coming from north)
+            (Direction::South, Route::Straight) => vec![
+                Vector2::new(400.0, 500.0),   // Start
+                Vector2::new(400.0, 400.0),   // Approach intersection
+                Vector2::new(400.0, 200.0),   // Through intersection
+                Vector2::new(400.0, 100.0),   // Exit
             ],
+            (Direction::South, Route::Left) => vec![
+                Vector2::new(400.0, 500.0),   // Start
+                Vector2::new(400.0, 400.0),   // Approach intersection
+                Vector2::new(420.0, 320.0),   // Begin turn
+                Vector2::new(480.0, 300.0),   // Mid turn
+                Vector2::new(600.0, 300.0),   // Exit (east)
+            ],
+            (Direction::South, Route::Right) => vec![
+                Vector2::new(400.0, 500.0),   // Start
+                Vector2::new(400.0, 350.0),   // Approach intersection
+                Vector2::new(380.0, 320.0),   // Begin turn
+                Vector2::new(320.0, 300.0),   // Mid turn
+                Vector2::new(200.0, 300.0),   // Exit (west)
+            ],
+
+            // West approach (coming from east)
+            (Direction::West, Route::Straight) => vec![
+                Vector2::new(700.0, 300.0),   // Start
+                Vector2::new(600.0, 300.0),   // Approach intersection
+                Vector2::new(400.0, 300.0),   // Through intersection
+                Vector2::new(200.0, 300.0),   // Exit
+            ],
+            (Direction::West, Route::Left) => vec![
+                Vector2::new(700.0, 300.0),   // Start
+                Vector2::new(600.0, 300.0),   // Approach intersection
+                Vector2::new(480.0, 320.0),   // Begin turn
+                Vector2::new(400.0, 400.0),   // Mid turn
+                Vector2::new(400.0, 500.0),   // Exit (south)
+            ],
+            (Direction::West, Route::Right) => vec![
+                Vector2::new(700.0, 300.0),   // Start
+                Vector2::new(500.0, 300.0),   // Approach intersection
+                Vector2::new(480.0, 280.0),   // Begin turn
+                Vector2::new(400.0, 200.0),   // Mid turn
+                Vector2::new(400.0, 100.0),   // Exit (north)
+            ],
+
+
         }
     }
 

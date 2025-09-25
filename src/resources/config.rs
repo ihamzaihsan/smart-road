@@ -31,7 +31,7 @@ impl Default for SimulationConfig {
         Self {
             max_vehicles: 20,
             spawn_cooldown: 3.0,
-            cleanup_distance: 350.0,
+            cleanup_distance: 650.0, // Larger than spawn distances
             intersection_size: 300.0,
             detection_distance: 200.0,
         }

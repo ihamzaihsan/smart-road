@@ -23,7 +23,7 @@ impl Default for SpawnManager {
             last_lane_spawn_time: HashMap::new(),
             spawn_cooldown: 0.4,  // Per-direction cooldown
             lane_cooldown: 1.0,   // Per-lane cooldown
-            spawn_distance: 300.0,
+            spawn_distance: 580.0, // Near screen edges (screen is 1200x800, so edges are at ±600, ±400)
             min_spawn_separation: 90.0,  
         }
     }
@@ -80,11 +80,12 @@ impl SpawnManager {
     }
 
     pub fn get_spawn_position(&self, direction: Direction, lane_offset: f32) -> Vector2<f32> {
+        // Screen dimensions: 1200x800, so edges are at ±600 (horizontal) and ±400 (vertical)
         match direction {
-            Direction::North => Vector2::new(lane_offset, -self.spawn_distance),
-            Direction::South => Vector2::new(lane_offset, self.spawn_distance),
-            Direction::East => Vector2::new(-self.spawn_distance, lane_offset),
-            Direction::West => Vector2::new(self.spawn_distance, lane_offset),
+            Direction::North => Vector2::new(lane_offset, -380.0), // Spawn near top edge
+            Direction::South => Vector2::new(lane_offset, 380.0),  // Spawn near bottom edge
+            Direction::East => Vector2::new(-580.0, lane_offset),  // Spawn near left edge
+            Direction::West => Vector2::new(580.0, lane_offset),   // Spawn near right edge
         }
     }
 
