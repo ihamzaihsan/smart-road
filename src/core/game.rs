@@ -104,11 +104,27 @@ impl<'a> Game<'a> {
             }
         }
     }
-    fn get_route_for_lane(&self, _direction: Direction, lane_index: usize) -> Route {
-        match lane_index {
-            0 => Route::Right,
+    fn get_route_for_lane(&self, direction: Direction, lane_index: usize) -> Route {
+        // Lanes are ordered from the left-most lane (index 0) to the right-most
+        // for the direction returned by SpawnManager::get_lane_centers.
+        // For North/West the lane indices map naturally: 0=Right,1=Straight,2=Left
+        // For South/East the spawn manager flips lane ordering, so we need to
+        // mirror the lane index to keep logical turning (right vs left) consistent.
+        let max_lane_index = self.road_config.num_lanes.saturating_sub(1);
+        let clamped = lane_index.min(max_lane_index);
+
+        // Determine effective index depending on direction. For South and East
+        // we mirror the index so that lane 0 becomes the right-most logically.
+        let effective_index = match direction {
+            Direction::South | Direction::East => max_lane_index.saturating_sub(clamped),
+            _ => clamped,
+        };
+
+        match effective_index {
+            // Inverted mapping: lane 0 -> Left, lane 1 -> Straight, lane 2 -> Right
+            0 => Route::Left,
             1 => Route::Straight,
-            2 => Route::Left,
+            2 => Route::Right,
             _ => Route::Straight,
         }
     }
@@ -244,9 +260,44 @@ impl<'a> Game<'a> {
                     Route::Straight => direction,
                 };
 
+                // Determine the entry lane centers and compute the lane "rank" from center
+                // (0 = innermost lane, larger = further from center). Then pick the exit
+                // lane with the same rank so inner lanes map to inner lanes, outer to outer.
+                let entry_lane_centers = self.spawn_manager.get_lane_centers(direction, &self.road_config);
+                let exit_lane_centers = self.spawn_manager.get_lane_centers(exit_direction, &self.road_config);
+
+                // Build arrays of indices sorted by absolute distance from center (ascending)
+                let mut entry_indices: Vec<usize> = (0..entry_lane_centers.len()).collect();
+                entry_indices.sort_by(|&a, &b| {
+                    entry_lane_centers[a]
+                        .abs()
+                        .partial_cmp(&entry_lane_centers[b].abs())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+
+                let mut exit_indices: Vec<usize> = (0..exit_lane_centers.len()).collect();
+                exit_indices.sort_by(|&a, &b| {
+                    exit_lane_centers[a]
+                        .abs()
+                        .partial_cmp(&exit_lane_centers[b].abs())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+
+                // Find entry_rank: position of clamped_lane in the sorted-by-abs list
+                let entry_rank = entry_indices
+                    .iter()
+                    .position(|&idx| idx == clamped_lane)
+                    .unwrap_or(0);
+
+                // Clamp rank to available exit lanes
+                let chosen_rank = entry_rank.min(exit_indices.len().saturating_sub(1));
+
+                let best_exit_lane = exit_indices[chosen_rank];
+
+                // Use the chosen exit lane center for constructing turn points
                 let turn_coordinate = self.spawn_manager.get_lane_center_by_index(
                     exit_direction,
-                    clamped_lane,
+                    best_exit_lane,
                     &self.road_config,
                 );
                 let turn_point = Self::set_axis(start_pos, movement_axis_is_y, turn_coordinate);
@@ -259,7 +310,7 @@ impl<'a> Game<'a> {
                     Self::set_axis(turn_point, exit_movement_axis_is_y, exit_boundary);
                 Self::push_if_new(&mut waypoints, corner_point);
 
-                let exit_far = self.exit_far_point(exit_direction, clamped_lane);
+                let exit_far = self.exit_far_point(exit_direction, best_exit_lane);
                 Self::push_if_new(&mut waypoints, exit_far);
             }
         }
