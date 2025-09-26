@@ -1,19 +1,19 @@
+use crate::components::{Direction, Route, Vehicle, VehicleState};
+use crate::core::physics::{
+    eta_cap_from_gap, quantize_with_hysteresis, speed_tier_from_distance, ConflictCalendar,
+    VehiclePhysics, SPEED_LEVELS,
+};
+use crate::input::InputSystem;
+use crate::rendering::Renderer;
+use crate::resources::{RoadConfig, SimulationConfig, VehicleAssets};
+use crate::systems::{AutoSpawnTimer, SpawnManager};
+use nalgebra::Vector2;
 use sdl2::event::Event;
+use sdl2::image::LoadTexture;
 use sdl2::keyboard::Keycode;
 use sdl2::render::TextureCreator;
 use sdl2::video::WindowContext;
-use sdl2::image::LoadTexture;
 use std::time::{Duration, Instant};
-use nalgebra::Vector2;
-use crate::components::{Vehicle, Direction, VehicleState, Route};
-use crate::resources::{RoadConfig, VehicleAssets, SimulationConfig};
-use crate::systems::{SpawnManager, AutoSpawnTimer};
-use crate::rendering::Renderer;
-use crate::input::InputSystem;
-use crate::core::physics::{
-    VehiclePhysics, quantize_with_hysteresis, speed_tier_from_distance, eta_cap_from_gap,
-    ConflictCalendar, SPEED_LEVELS,
-};
 pub struct Game<'a> {
     pub vehicles: Vec<Vehicle>,
     pub spawn_manager: SpawnManager,
@@ -35,7 +35,8 @@ impl<'a> Game<'a> {
         let texture_names = vehicle_assets.texture_names.clone();
         for texture_name in texture_names {
             let texture_path = format!("assets/{}", texture_name);
-            let texture = texture_creator.load_texture(&texture_path)
+            let texture = texture_creator
+                .load_texture(&texture_path)
                 .map_err(|e| format!("Failed to load texture {}: {}", texture_path, e))?;
             vehicle_assets.car_textures.push(texture);
         }
@@ -91,25 +92,24 @@ impl<'a> Game<'a> {
         if let Some(direction) = spawn_direction {
             if self.spawn_manager.can_spawn(direction, current_time_f64) {
                 // Find a safe spawn position using same logic as automatic spawning
-                if let Some((spawn_pos, lane_index)) = self.find_safe_spawn_position_with_lane(direction) {
-                    let route = self.get_route_for_lane(lane_index);
-                    self.spawn_vehicle_at_position(direction, spawn_pos, route);
+                if let Some((spawn_pos, lane_index)) =
+                    self.find_safe_spawn_position_with_lane(direction)
+                {
+                    let route = self.get_route_for_lane(direction, lane_index);
+                    self.spawn_vehicle_at_position(direction, lane_index, spawn_pos, route);
                     self.spawn_manager.record_spawn(direction, current_time_f64);
-                    self.spawn_manager.record_lane_spawn(direction, lane_index, current_time_f64);
+                    self.spawn_manager
+                        .record_lane_spawn(direction, lane_index, current_time_f64);
                 }
             }
         }
     }
-    fn get_route_for_lane(&self, lane_index: usize) -> Route {
-        // Based on the intersection diagram:
-        // Lane 0: Right turn (r)
-        // Lane 1: Straight (s) 
-        // Lane 2: Left turn (l)
+    fn get_route_for_lane(&self, _direction: Direction, lane_index: usize) -> Route {
         match lane_index {
             0 => Route::Right,
             1 => Route::Straight,
             2 => Route::Left,
-            _ => Route::Straight, // Default to straight for any additional lanes
+            _ => Route::Straight,
         }
     }
     fn handle_spawn_toggle(&mut self) {
@@ -135,76 +135,66 @@ impl<'a> Game<'a> {
             return;
         }
         let direction = AutoSpawnTimer::random_direction();
-        let route = SpawnManager::random_route();
-        if let Some(spawn_pos) = self.find_safe_spawn_position(direction) {
-            self.spawn_vehicle_at_position(direction, spawn_pos, route);
+        if let Some((spawn_pos, lane_index)) = self.find_safe_spawn_position_with_lane(direction) {
+            let current_time_f64 = current_time.duration_since(self.start_time).as_secs_f64();
+            let route = self.get_route_for_lane(direction, lane_index);
+            self.spawn_vehicle_at_position(direction, lane_index, spawn_pos, route);
+            self.spawn_manager.record_spawn(direction, current_time_f64);
+            self.spawn_manager
+                .record_lane_spawn(direction, lane_index, current_time_f64);
             self.auto_spawn_timer.reset_timer();
             self.last_auto_spawn_at = current_time;
         }
     }
-    fn find_safe_spawn_position(&self, direction: Direction) -> Option<Vector2<f32>> {
-        let lane_centers = self.spawn_manager.get_lane_centers(direction, &self.road_config);
-        let random_lane_offset = self.spawn_manager.get_random_lane_center(direction, &self.road_config);
-        let potential_pos = self.spawn_manager.get_spawn_position(direction, random_lane_offset);
-        let is_safe = self.vehicles.iter().all(|vehicle| {
-            let distance = (potential_pos - vehicle.position).magnitude();
-            distance >= self.spawn_manager.min_spawn_separation
-        });
-        if is_safe {
-            return Some(potential_pos);
-        }
-        for &lane_offset in &lane_centers {
-            if (lane_offset - random_lane_offset).abs() < 0.1 {
-                continue;
-            }
-            let potential_pos = self.spawn_manager.get_spawn_position(direction, lane_offset);
-            let is_safe = self.vehicles.iter().all(|vehicle| {
-                let distance = (potential_pos - vehicle.position).magnitude();
-                distance >= self.spawn_manager.min_spawn_separation
-            });
-            if is_safe {
-                return Some(potential_pos);
-            }
-        }
-        None
-    }
+    fn find_safe_spawn_position_with_lane(
+        &mut self,
+        direction: Direction,
+    ) -> Option<(Vector2<f32>, usize)> {
+        let lane_centers = self
+            .spawn_manager
+            .get_lane_centers(direction, &self.road_config);
 
-    fn find_safe_spawn_position_with_lane(&mut self, direction: Direction) -> Option<(Vector2<f32>, usize)> {
-        let lane_centers = self.spawn_manager.get_lane_centers(direction, &self.road_config);
-        
         // Get the last used lane for this direction, or start with lane 0
         let last_lane = self.last_lane_used.get(&direction).copied().unwrap_or(0);
-        
+
         // Try lanes starting from the next lane after the last used one (round-robin)
         for offset in 0..lane_centers.len() {
             let lane_index = (last_lane + 1 + offset) % lane_centers.len();
             let lane_offset = lane_centers[lane_index];
-            let potential_pos = self.spawn_manager.get_spawn_position(direction, lane_offset);
+            let potential_pos = self
+                .spawn_manager
+                .get_spawn_position(direction, lane_offset);
             let is_safe = self.vehicles.iter().all(|vehicle| {
                 let distance = (potential_pos - vehicle.position).magnitude();
                 distance >= self.spawn_manager.min_spawn_separation
             });
-            
+
             if is_safe {
                 // Update the last used lane for this direction
                 self.last_lane_used.insert(direction, lane_index);
                 return Some((potential_pos, lane_index));
             }
         }
-        
+
         None
     }
-    fn spawn_vehicle_at_position(&mut self, direction: Direction, position: Vector2<f32>, route: Route) {
+    fn spawn_vehicle_at_position(
+        &mut self,
+        direction: Direction,
+        lane_index: usize,
+        position: Vector2<f32>,
+        route: Route,
+    ) {
         let vehicle_id = self.spawn_manager.next_id;
         self.spawn_manager.next_id += 1;
         let texture_index = self.vehicle_assets.get_random_texture_index();
         let rotation = direction.rotation_angle();
-        let path = self.generate_waypoints(direction, route, position);
+        let path = self.generate_waypoints(direction, lane_index, route, position);
         let vehicle = Vehicle {
-                id: vehicle_id,
-                position,
-                width: 2.0, // default width
-                length: 4.0, // default length
+            id: vehicle_id,
+            position,
+            width: 2.0,
+            length: 4.0,
             speed: 0.0,
             state: VehicleState::Moving,
             route,
@@ -213,102 +203,120 @@ impl<'a> Game<'a> {
             rotation,
             texture_index,
             path,
-            path_index: 1, // Start at waypoint 1 since waypoint 0 is the spawn position
+            path_index: 1,
         };
         self.vehicles.push(vehicle);
     }
-    fn generate_waypoints(&self, direction: Direction, route: Route, start_pos: Vector2<f32>) -> Vec<Vector2<f32>> {
+
+    fn generate_waypoints(
+        &self,
+        direction: Direction,
+        lane_index: usize,
+        route: Route,
+        start_pos: Vector2<f32>,
+    ) -> Vec<Vector2<f32>> {
         let mut waypoints = Vec::new();
-        
-        match (direction, route) {
-            // North approach (coming from south)
-            (Direction::North, Route::Straight) => {
-                waypoints.push(start_pos);                          // Start at spawn position
-                waypoints.push(Vector2::new(start_pos.x, 0.0));     // Approach intersection
-                waypoints.push(Vector2::new(start_pos.x, 380.0));   // Exit north (to screen edge)
-            }
-            (Direction::North, Route::Left) => {
-                waypoints.push(start_pos);                          // Start at spawn position
-                waypoints.push(Vector2::new(start_pos.x, 0.0));     // Approach intersection
-                waypoints.push(Vector2::new(start_pos.x - 20.0, 20.0)); // Begin turn
-                waypoints.push(Vector2::new(start_pos.x - 80.0, 0.0));  // Mid turn
-                waypoints.push(Vector2::new(-580.0, 0.0));           // Exit west (to screen edge)
-            }
-            (Direction::North, Route::Right) => {
-                waypoints.push(start_pos);                          // Start at spawn position
-                waypoints.push(Vector2::new(start_pos.x, 0.0));     // Approach intersection
-                waypoints.push(Vector2::new(start_pos.x + 20.0, 20.0)); // Begin turn
-                waypoints.push(Vector2::new(start_pos.x + 80.0, 0.0));  // Mid turn
-                waypoints.push(Vector2::new(580.0, 0.0));            // Exit east (to screen edge)
-            }
+        waypoints.push(start_pos);
 
-            // South approach (coming from north)
-            (Direction::South, Route::Straight) => {
-                waypoints.push(start_pos);                          // Start at spawn position
-                waypoints.push(Vector2::new(start_pos.x, 0.0));     // Approach intersection
-                waypoints.push(Vector2::new(start_pos.x, -380.0));  // Exit south (to screen edge)
-            }
-            (Direction::South, Route::Left) => {
-                waypoints.push(start_pos);                          // Start at spawn position
-                waypoints.push(Vector2::new(start_pos.x, 0.0));     // Approach intersection
-                waypoints.push(Vector2::new(start_pos.x + 20.0, -20.0)); // Begin turn
-                waypoints.push(Vector2::new(start_pos.x + 80.0, 0.0));   // Mid turn
-                waypoints.push(Vector2::new(580.0, 0.0));            // Exit east (to screen edge)
-            }
-            (Direction::South, Route::Right) => {
-                waypoints.push(start_pos);                          // Start at spawn position
-                waypoints.push(Vector2::new(start_pos.x, 0.0));     // Approach intersection
-                waypoints.push(Vector2::new(start_pos.x - 20.0, -20.0)); // Begin turn
-                waypoints.push(Vector2::new(start_pos.x - 80.0, 0.0));   // Mid turn
-                waypoints.push(Vector2::new(-580.0, 0.0));           // Exit west (to screen edge)
-            }
+        let max_lane_index = self.road_config.num_lanes.saturating_sub(1);
+        let clamped_lane = lane_index.min(max_lane_index);
+        let intersection_half = self.road_config.lane_width * self.road_config.num_lanes as f32;
 
-            // East approach (coming from west)
-            (Direction::East, Route::Straight) => {
-                waypoints.push(start_pos);                          // Start at spawn position
-                waypoints.push(Vector2::new(0.0, start_pos.y));     // Approach intersection
-                waypoints.push(Vector2::new(580.0, start_pos.y));   // Exit east (to screen edge)
-            }
-            (Direction::East, Route::Left) => {
-                waypoints.push(start_pos);                          // Start at spawn position
-                waypoints.push(Vector2::new(0.0, start_pos.y));     // Approach intersection
-                waypoints.push(Vector2::new(20.0, start_pos.y - 20.0)); // Begin turn
-                waypoints.push(Vector2::new(0.0, start_pos.y - 80.0));  // Mid turn
-                waypoints.push(Vector2::new(0.0, -380.0));           // Exit south (to screen edge)
-            }
-            (Direction::East, Route::Right) => {
-                waypoints.push(start_pos);                          // Start at spawn position
-                waypoints.push(Vector2::new(0.0, start_pos.y));     // Approach intersection
-                waypoints.push(Vector2::new(20.0, start_pos.y + 20.0)); // Begin turn
-                waypoints.push(Vector2::new(0.0, start_pos.y + 80.0));  // Mid turn
-                waypoints.push(Vector2::new(0.0, 380.0));            // Exit north (to screen edge)
-            }
+        let movement_axis_is_y = matches!(direction, Direction::North | Direction::South);
 
-            // West approach (coming from east)
-            (Direction::West, Route::Straight) => {
-                waypoints.push(start_pos);                          // Start at spawn position
-                waypoints.push(Vector2::new(0.0, start_pos.y));     // Approach intersection
-                waypoints.push(Vector2::new(-580.0, start_pos.y));  // Exit west (to screen edge)
+        match route {
+            Route::Straight => {
+                let entry_boundary = Self::boundary_before(direction, intersection_half);
+                let mut point = Self::set_axis(start_pos, movement_axis_is_y, entry_boundary);
+                Self::push_if_new(&mut waypoints, point);
+
+                let exit_boundary = Self::boundary_after(direction, intersection_half);
+                point = Self::set_axis(point, movement_axis_is_y, exit_boundary);
+                Self::push_if_new(&mut waypoints, point);
+
+                let exit_far = self.exit_far_point(direction, clamped_lane);
+                Self::push_if_new(&mut waypoints, exit_far);
             }
-            (Direction::West, Route::Left) => {
-                waypoints.push(start_pos);                          // Start at spawn position
-                waypoints.push(Vector2::new(0.0, start_pos.y));     // Approach intersection
-                waypoints.push(Vector2::new(-20.0, start_pos.y + 20.0)); // Begin turn
-                waypoints.push(Vector2::new(0.0, start_pos.y + 80.0));   // Mid turn
-                waypoints.push(Vector2::new(0.0, 380.0));            // Exit north (to screen edge)
-            }
-            (Direction::West, Route::Right) => {
-                waypoints.push(start_pos);                          // Start at spawn position
-                waypoints.push(Vector2::new(0.0, start_pos.y));     // Approach intersection
-                waypoints.push(Vector2::new(-20.0, start_pos.y - 20.0)); // Begin turn
-                waypoints.push(Vector2::new(0.0, start_pos.y - 80.0));   // Mid turn
-                waypoints.push(Vector2::new(0.0, -380.0));           // Exit south (to screen edge)
+            Route::Right | Route::Left => {
+                let exit_direction = match route {
+                    Route::Right => direction.turn_right(),
+                    Route::Left => direction.turn_left(),
+                    Route::Straight => direction,
+                };
+
+                let turn_coordinate = self.spawn_manager.get_lane_center_by_index(
+                    exit_direction,
+                    clamped_lane,
+                    &self.road_config,
+                );
+                let turn_point = Self::set_axis(start_pos, movement_axis_is_y, turn_coordinate);
+                Self::push_if_new(&mut waypoints, turn_point);
+
+                let exit_movement_axis_is_y =
+                    matches!(exit_direction, Direction::North | Direction::South);
+                let exit_boundary = Self::boundary_after(exit_direction, intersection_half);
+                let corner_point =
+                    Self::set_axis(turn_point, exit_movement_axis_is_y, exit_boundary);
+                Self::push_if_new(&mut waypoints, corner_point);
+
+                let exit_far = self.exit_far_point(exit_direction, clamped_lane);
+                Self::push_if_new(&mut waypoints, exit_far);
             }
         }
+
         waypoints
     }
+
+    fn push_if_new(points: &mut Vec<Vector2<f32>>, point: Vector2<f32>) {
+        if points
+            .last()
+            .map_or(true, |last| (*last - point).magnitude_squared() > 1.0)
+        {
+            points.push(point);
+        }
+    }
+
+    fn set_axis(point: Vector2<f32>, use_y: bool, value: f32) -> Vector2<f32> {
+        if use_y {
+            Vector2::new(point.x, value)
+        } else {
+            Vector2::new(value, point.y)
+        }
+    }
+
+    fn boundary_before(direction: Direction, half_size: f32) -> f32 {
+        match direction {
+            Direction::North | Direction::East => -half_size,
+            Direction::South | Direction::West => half_size,
+        }
+    }
+
+    fn boundary_after(direction: Direction, half_size: f32) -> f32 {
+        match direction {
+            Direction::North | Direction::East => half_size,
+            Direction::South | Direction::West => -half_size,
+        }
+    }
+
+    fn exit_far_point(&self, direction: Direction, lane_index: usize) -> Vector2<f32> {
+        let max_lane_index = self.road_config.num_lanes.saturating_sub(1);
+        let clamped_lane = lane_index.min(max_lane_index);
+        let lane_center =
+            self.spawn_manager
+                .get_lane_center_by_index(direction, clamped_lane, &self.road_config);
+        let distance = self.simulation_config.cleanup_distance;
+        match direction {
+            Direction::North => Vector2::new(lane_center, distance),
+            Direction::South => Vector2::new(lane_center, -distance),
+            Direction::East => Vector2::new(distance, lane_center),
+            Direction::West => Vector2::new(-distance, lane_center),
+        }
+    }
     fn update_vehicles(&mut self, delta_time: f32) {
-        let current_time = self.last_update.duration_since(self.start_time).as_secs_f32();
+        let current_time = self
+            .last_update
+            .duration_since(self.start_time)
+            .as_secs_f32();
         let road_half_width: f32 = self.road_config.lane_width * self.road_config.num_lanes as f32;
         for v in self.vehicles.iter_mut() {
             if v.state != VehicleState::Moving {
@@ -326,7 +334,8 @@ impl<'a> Game<'a> {
             if current_vehicle.state != VehicleState::Moving {
                 continue;
             }
-            let (emergency_brake, safe_speed) = VehiclePhysics::detect_collision_risk(current_vehicle, right);
+            let (emergency_brake, safe_speed) =
+                VehiclePhysics::detect_collision_risk(current_vehicle, right);
             if emergency_brake {
                 current_vehicle.target_speed = 0.0;
                 continue;
@@ -336,15 +345,23 @@ impl<'a> Game<'a> {
                 if other_vehicle.state != VehicleState::Moving {
                     continue;
                 }
-                let in_same_lane = Self::are_vehicles_in_same_lane_static(current_vehicle, other_vehicle, &self.road_config);
-                let is_following = Self::is_vehicle_following_static(current_vehicle, other_vehicle);
+                let in_same_lane = Self::are_vehicles_in_same_lane_static(
+                    current_vehicle,
+                    other_vehicle,
+                    &self.road_config,
+                );
+                let is_following =
+                    Self::is_vehicle_following_static(current_vehicle, other_vehicle);
                 if in_same_lane && is_following {
                     let distance = (current_vehicle.position - other_vehicle.position).magnitude();
-                    let safe_distance = VehiclePhysics::calculate_safety_distance(current_vehicle.speed);
+                    let safe_distance =
+                        VehiclePhysics::calculate_safety_distance(current_vehicle.speed);
                     if distance < safe_distance * 2.5 {
                         let safety_factor = (distance / safe_distance).clamp(0.2, 1.0);
                         let safe_speed = other_vehicle.speed * safety_factor * 0.7;
-                        current_vehicle.target_speed = current_vehicle.target_speed.min(safe_speed.max(SPEED_LEVELS[10]));
+                        current_vehicle.target_speed = current_vehicle
+                            .target_speed
+                            .min(safe_speed.max(SPEED_LEVELS[10]));
                     }
                 }
             }
@@ -358,11 +375,17 @@ impl<'a> Game<'a> {
             let mut conflict_found = false;
             for i in v.path_index..v.path.len() {
                 let conflict_point = v.path[i];
-                if conflict_point.x.abs() < intersection_size && conflict_point.y.abs() < intersection_size {
+                if conflict_point.x.abs() < intersection_size
+                    && conflict_point.y.abs() < intersection_size
+                {
                     let eta = VehiclePhysics::time_to_point(v, conflict_point);
-                    match self.conflict_calendar.try_reserve(v.id, conflict_point, current_time + eta, current_time) {
-                        Ok(()) => {
-                        }
+                    match self.conflict_calendar.try_reserve(
+                        v.id,
+                        conflict_point,
+                        current_time + eta,
+                        current_time,
+                    ) {
+                        Ok(()) => {}
                         Err(gap) => {
                             let capped_speed = eta_cap_from_gap(gap);
                             min_capped_speed = min_capped_speed.min(capped_speed);
@@ -390,7 +413,11 @@ impl<'a> Game<'a> {
             distance_from_center <= cleanup_distance
         });
     }
-    fn are_vehicles_in_same_lane_static(vehicle1: &Vehicle, vehicle2: &Vehicle, road_config: &RoadConfig) -> bool {
+    fn are_vehicles_in_same_lane_static(
+        vehicle1: &Vehicle,
+        vehicle2: &Vehicle,
+        road_config: &RoadConfig,
+    ) -> bool {
         if vehicle1.direction != vehicle2.direction {
             return false;
         }

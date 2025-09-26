@@ -12,17 +12,17 @@ pub struct PathVehicle {
     pub target_speed: f32,
     pub rotation: f32,
     pub texture_index: usize,
-    
+
     // Path-based navigation
-    pub path_s: f32,              // Current position along path (arc-length parameter)
+    pub path_s: f32, // Current position along path (arc-length parameter)
     pub path: crate::systems::conflict_system::Path,
     pub kinematics: crate::systems::conflict_system::Kinematics,
-    
+
     // Route information
     pub approach: Direction,
     pub route: Route,
     pub state: VehicleState,
-    
+
     // Conflict management
     pub next_conflict_cell: Option<crate::systems::conflict_system::ConflictCellId>,
     pub reserved_time_window: Option<(f32, f32)>, // (t_in, t_out)
@@ -40,7 +40,7 @@ impl PathVehicle {
     ) -> Self {
         let mut kinematics = crate::systems::conflict_system::Kinematics::default();
         kinematics.v = 150.0; // Starting speed
-        
+
         Self {
             id,
             position: start_position,
@@ -67,12 +67,12 @@ impl PathVehicle {
         // Update path parameter based on speed
         self.path_s += self.speed * delta_time;
         self.path_s = self.path_s.min(self.path.s_total);
-        
+
         // Get position and heading from path
         let (new_position, heading) = self.path.pose_at_s(self.path_s);
         self.position = new_position;
         self.rotation = heading.y.atan2(heading.x);
-        
+
         // Update kinematics
         self.kinematics.v = self.speed;
     }
@@ -100,10 +100,10 @@ impl PathVehicle {
     pub fn apply_speed_control(&mut self, target_eta: f32, current_time: f32) {
         if let Some(window) = self.reserved_time_window {
             let eta_error = window.0 - current_time - target_eta;
-            
+
             // Hysteresis bands for speed changes
             let current_speed_idx = self.get_current_speed_index();
-            
+
             if eta_error > 0.6 {
                 // Too early, slow down
                 self.set_speed_level(0); // slow
@@ -142,14 +142,14 @@ impl PathVehicle {
         } else {
             -self.kinematics.d_max
         };
-        
+
         let speed_change = max_accel * delta_time;
         if speed_diff.abs() < speed_change.abs() {
             self.speed = self.target_speed;
         } else {
             self.speed += speed_change.copysign(speed_diff);
         }
-        
+
         self.speed = self.speed.max(0.0);
     }
 }

@@ -11,7 +11,7 @@ pub struct Vehicle {
     pub route: Route,
     pub direction: Direction,
     pub target_speed: f32,
-    pub rotation: f32,  
+    pub rotation: f32,
     pub texture_index: usize,
     pub path: Vec<Vector2<f32>>,
     pub path_index: usize,
@@ -29,19 +29,18 @@ pub enum VehicleState {
     Waiting,
     Moving,
     Stopped,
-    Yielding,    // Added for conflict resolution
+    Yielding, // Added for conflict resolution
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Direction {
-    North, 
-    South, 
-    East,   
-    West,   
+    North,
+    South,
+    East,
+    West,
 }
 
 impl Direction {
-    
     pub fn movement_vector(&self) -> Vector2<f32> {
         match self {
             Direction::North => Vector2::new(0.0, 1.0),
@@ -75,6 +74,28 @@ impl Direction {
             Direction::South => Direction::West,
             Direction::East => Direction::South,
             Direction::West => Direction::North,
+        }
+    }
+
+    pub fn from_vector(vector: Vector2<f32>) -> Option<Self> {
+        let mag_sq = vector.x * vector.x + vector.y * vector.y;
+        if mag_sq < 1e-4 {
+            return None;
+        }
+        if vector.x.abs() > vector.y.abs() {
+            if vector.x > 0.0 {
+                Some(Direction::East)
+            } else {
+                Some(Direction::West)
+            }
+        } else if vector.y.abs() > vector.x.abs() {
+            if vector.y > 0.0 {
+                Some(Direction::North)
+            } else {
+                Some(Direction::South)
+            }
+        } else {
+            None
         }
     }
 }

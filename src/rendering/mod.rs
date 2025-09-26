@@ -1,7 +1,7 @@
+use sdl2::pixels::Color;
+use sdl2::rect::Rect;
 use sdl2::render::{Canvas, TextureCreator};
 use sdl2::video::{Window, WindowContext};
-use sdl2::rect::Rect;
-use sdl2::pixels::Color;
 
 use crate::components::Vehicle;
 use crate::resources::{RoadConfig, VehicleAssets};
@@ -13,7 +13,10 @@ pub struct Renderer<'a> {
 
 impl<'a> Renderer<'a> {
     pub fn new(canvas: Canvas<Window>, texture_creator: &'a TextureCreator<WindowContext>) -> Self {
-        Self { canvas, texture_creator }
+        Self {
+            canvas,
+            texture_creator,
+        }
     }
 
     pub fn clear(&mut self) {
@@ -43,7 +46,9 @@ impl<'a> Renderer<'a> {
             window_width,
             road_width as u32,
         );
-        self.canvas.fill_rect(road_rect).map_err(|e| e.to_string())?;
+        self.canvas
+            .fill_rect(road_rect)
+            .map_err(|e| e.to_string())?;
 
         // Draw vertical road
         let road_rect = Rect::new(
@@ -52,7 +57,9 @@ impl<'a> Renderer<'a> {
             road_width as u32,
             window_height,
         );
-        self.canvas.fill_rect(road_rect).map_err(|e| e.to_string())?;
+        self.canvas
+            .fill_rect(road_rect)
+            .map_err(|e| e.to_string())?;
 
         // Draw lane markings
         self.render_lane_markings(road_config, center_x, center_y, window_width, window_height)?;
@@ -74,28 +81,28 @@ impl<'a> Renderer<'a> {
         let road_width = lane_width * total_lanes as i32;
         let dash_length = road_config.dash_length as i32;
         let dash_gap = road_config.dash_gap as i32;
-        
+
         // Calculate intersection bounds (no dashes in center)
         let intersection_half = road_width / 2;
-        
+
         // Calculate all lane positions from left edge
         let left_edge = -road_width / 2;
         let mut lane_separators: Vec<i32> = Vec::new();
-        
+
         // Add separators between individual lanes (but not between opposing directions)
         // Left group separators (lanes 0|1 and 1|2)
         for j in 1..lanes_per_direction {
             lane_separators.push(left_edge + (j as i32) * lane_width);
         }
-        
-        // Right group separators (lanes 3|4 and 4|5)  
+
+        // Right group separators (lanes 3|4 and 4|5)
         for j in (lanes_per_direction + 1)..total_lanes {
             lane_separators.push(left_edge + (j as i32) * lane_width);
         }
 
         // Draw white dashed lines between individual lanes
         self.canvas.set_draw_color(Color::RGB(255, 255, 255)); // White for lane markings
-        
+
         for &separator_offset in &lane_separators {
             // Horizontal dashes (for vertical road lanes)
             let y = center_y + separator_offset;
@@ -104,7 +111,9 @@ impl<'a> Renderer<'a> {
                 // Skip dashes in intersection area
                 if (x - center_x).abs() > intersection_half {
                     let dash_rect = Rect::new(x, y - 1, dash_length as u32, 2);
-                    self.canvas.fill_rect(dash_rect).map_err(|e| e.to_string())?;
+                    self.canvas
+                        .fill_rect(dash_rect)
+                        .map_err(|e| e.to_string())?;
                 }
                 x += dash_length + dash_gap;
             }
@@ -116,7 +125,9 @@ impl<'a> Renderer<'a> {
                 // Skip dashes in intersection area
                 if (y - center_y).abs() > intersection_half {
                     let dash_rect = Rect::new(x - 1, y, 2, dash_length as u32);
-                    self.canvas.fill_rect(dash_rect).map_err(|e| e.to_string())?;
+                    self.canvas
+                        .fill_rect(dash_rect)
+                        .map_err(|e| e.to_string())?;
                 }
                 y += dash_length + dash_gap;
             }
@@ -125,7 +136,7 @@ impl<'a> Renderer<'a> {
         // Draw white solid median separators between opposing directions (skip intersection)
         self.canvas.set_draw_color(Color::RGB(255, 255, 255)); // White for medians
         let median_width = 6;
-        
+
         // Horizontal median separator (separates up/down traffic) - skip intersection
         // Left side of intersection
         let left_median_rect = Rect::new(
@@ -134,8 +145,10 @@ impl<'a> Renderer<'a> {
             (center_x - intersection_half) as u32,
             median_width as u32,
         );
-        self.canvas.fill_rect(left_median_rect).map_err(|e| e.to_string())?;
-        
+        self.canvas
+            .fill_rect(left_median_rect)
+            .map_err(|e| e.to_string())?;
+
         // Right side of intersection
         let right_median_rect = Rect::new(
             center_x + intersection_half,
@@ -143,8 +156,10 @@ impl<'a> Renderer<'a> {
             (center_x - intersection_half) as u32,
             median_width as u32,
         );
-        self.canvas.fill_rect(right_median_rect).map_err(|e| e.to_string())?;
-        
+        self.canvas
+            .fill_rect(right_median_rect)
+            .map_err(|e| e.to_string())?;
+
         // Vertical median separator (separates left/right traffic) - skip intersection
         // Top side of intersection
         let top_median_rect = Rect::new(
@@ -153,8 +168,10 @@ impl<'a> Renderer<'a> {
             median_width as u32,
             (center_y - intersection_half) as u32,
         );
-        self.canvas.fill_rect(top_median_rect).map_err(|e| e.to_string())?;
-        
+        self.canvas
+            .fill_rect(top_median_rect)
+            .map_err(|e| e.to_string())?;
+
         // Bottom side of intersection
         let bottom_median_rect = Rect::new(
             center_x - median_width / 2,
@@ -162,7 +179,9 @@ impl<'a> Renderer<'a> {
             median_width as u32,
             (center_y - intersection_half) as u32,
         );
-        self.canvas.fill_rect(bottom_median_rect).map_err(|e| e.to_string())?;
+        self.canvas
+            .fill_rect(bottom_median_rect)
+            .map_err(|e| e.to_string())?;
 
         Ok(())
     }
@@ -201,7 +220,7 @@ impl<'a> Renderer<'a> {
         if let Some(texture) = vehicle_assets.car_textures.get(vehicle.texture_index) {
             // Calculate rotation angle in degrees
             let angle_degrees = vehicle.rotation * 180.0 / std::f32::consts::PI;
-            
+
             // Render the rotated texture
             self.canvas
                 .copy_ex(
@@ -234,7 +253,10 @@ impl<'a> Renderer<'a> {
     }
 
     /// Draw small red squares at each checkpoint for debugging visibility.
-    pub fn render_checkpoints(&mut self, checkpoints: &[nalgebra::Vector2<f32>]) -> Result<(), String> {
+    pub fn render_checkpoints(
+        &mut self,
+        checkpoints: &[nalgebra::Vector2<f32>],
+    ) -> Result<(), String> {
         // Use the same mapping as render_vehicle (center of screen = world 0,0; Y flipped)
         let (window_width, window_height) = self.canvas.output_size().map_err(|e| e.to_string())?;
         let center_x = window_width as i32 / 2;
@@ -246,7 +268,7 @@ impl<'a> Renderer<'a> {
         for p in checkpoints {
             let sx = center_x + p.x.round() as i32;
             let sy = center_y - p.y.round() as i32;
-            let rect = Rect::new(sx - size/2, sy - size/2, size as u32, size as u32);
+            let rect = Rect::new(sx - size / 2, sy - size / 2, size as u32, size as u32);
             self.canvas.fill_rect(rect)?;
         }
 

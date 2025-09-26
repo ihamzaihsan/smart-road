@@ -97,7 +97,7 @@ mod tests {
         avg.add(2.0);
         avg.add(3.0);
         assert!((avg.average() - 2.0).abs() < 1e-6);
-        
+
         avg.add(4.0);
         assert!((avg.average() - 3.0).abs() < 1e-6);
     }

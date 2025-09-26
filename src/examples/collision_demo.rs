@@ -1,10 +1,7 @@
 use crate::{
-    components::{Direction, Route, path_vehicle::PathVehicle},
-    systems::{
-        conflict_system::Path,
-        traffic_controller::TrafficController,
-    },
+    components::{path_vehicle::PathVehicle, Direction, Route},
     resources::stats::Stats,
+    systems::{conflict_system::Path, traffic_controller::TrafficController},
 };
 use nalgebra::Vector2;
 
@@ -20,7 +17,7 @@ impl SmartRoadExample {
         // Create intersection at (400, 300) with 200x200 size
         let intersection_center = Vector2::new(400.0, 300.0);
         let intersection_size = 200.0;
-        
+
         Self {
             traffic_controller: TrafficController::new(intersection_center, intersection_size),
             stats: Stats::default(),
@@ -36,13 +33,13 @@ impl SmartRoadExample {
         // Create a sample path based on approach and route
         let path_waypoints = self.generate_path_for_route(approach, route);
         let path = Path::new(path_waypoints);
-        
+
         // Starting position based on approach
         let start_position = match approach {
-            Direction::North => Vector2::new(400.0, 100.0),  // Coming from south, going north
-            Direction::South => Vector2::new(400.0, 500.0),  // Coming from north, going south  
-            Direction::East => Vector2::new(100.0, 300.0),   // Coming from west, going east
-            Direction::West => Vector2::new(700.0, 300.0),   // Coming from east, going west
+            Direction::North => Vector2::new(400.0, 100.0), // Coming from south, going north
+            Direction::South => Vector2::new(400.0, 500.0), // Coming from north, going south
+            Direction::East => Vector2::new(100.0, 300.0),  // Coming from west, going east
+            Direction::West => Vector2::new(700.0, 300.0),  // Coming from east, going west
         };
 
         PathVehicle::new(
@@ -60,93 +57,91 @@ impl SmartRoadExample {
         match (approach, route) {
             // North approach (coming from south)
             (Direction::North, Route::Straight) => vec![
-                Vector2::new(400.0, 100.0),   // Start
-                Vector2::new(400.0, 200.0),   // Approach intersection
-                Vector2::new(400.0, 400.0),   // Through intersection
-                Vector2::new(400.0, 500.0),   // Exit
+                Vector2::new(400.0, 100.0), // Start
+                Vector2::new(400.0, 200.0), // Approach intersection
+                Vector2::new(400.0, 400.0), // Through intersection
+                Vector2::new(400.0, 500.0), // Exit
             ],
             (Direction::North, Route::Left) => vec![
-                Vector2::new(400.0, 100.0),   // Start
-                Vector2::new(400.0, 200.0),   // Approach intersection
-                Vector2::new(380.0, 280.0),   // Begin turn
-                Vector2::new(320.0, 300.0),   // Mid turn
-                Vector2::new(200.0, 300.0),   // Exit
+                Vector2::new(400.0, 100.0), // Start
+                Vector2::new(400.0, 200.0), // Approach intersection
+                Vector2::new(380.0, 280.0), // Begin turn
+                Vector2::new(320.0, 300.0), // Mid turn
+                Vector2::new(200.0, 300.0), // Exit
             ],
             (Direction::North, Route::Right) => vec![
-                Vector2::new(400.0, 100.0),   // Start
-                Vector2::new(400.0, 250.0),   // Approach intersection
-                Vector2::new(420.0, 280.0),   // Begin turn
-                Vector2::new(480.0, 300.0),   // Mid turn
-                Vector2::new(600.0, 300.0),   // Exit
+                Vector2::new(400.0, 100.0), // Start
+                Vector2::new(400.0, 250.0), // Approach intersection
+                Vector2::new(420.0, 280.0), // Begin turn
+                Vector2::new(480.0, 300.0), // Mid turn
+                Vector2::new(600.0, 300.0), // Exit
             ],
 
             // East approach (coming from west)
             (Direction::East, Route::Straight) => vec![
-                Vector2::new(100.0, 300.0),   // Start
-                Vector2::new(200.0, 300.0),   // Approach intersection
-                Vector2::new(400.0, 300.0),   // Through intersection
-                Vector2::new(600.0, 300.0),   // Exit
+                Vector2::new(100.0, 300.0), // Start
+                Vector2::new(200.0, 300.0), // Approach intersection
+                Vector2::new(400.0, 300.0), // Through intersection
+                Vector2::new(600.0, 300.0), // Exit
             ],
             (Direction::East, Route::Left) => vec![
-                Vector2::new(100.0, 300.0),   // Start
-                Vector2::new(200.0, 300.0),   // Approach intersection
-                Vector2::new(320.0, 280.0),   // Begin turn
-                Vector2::new(400.0, 200.0),   // Mid turn
-                Vector2::new(400.0, 100.0),   // Exit (north)
+                Vector2::new(100.0, 300.0), // Start
+                Vector2::new(200.0, 300.0), // Approach intersection
+                Vector2::new(320.0, 280.0), // Begin turn
+                Vector2::new(400.0, 200.0), // Mid turn
+                Vector2::new(400.0, 100.0), // Exit (north)
             ],
             (Direction::East, Route::Right) => vec![
-                Vector2::new(100.0, 300.0),   // Start
-                Vector2::new(300.0, 300.0),   // Approach intersection
-                Vector2::new(320.0, 320.0),   // Begin turn
-                Vector2::new(400.0, 400.0),   // Mid turn
-                Vector2::new(400.0, 500.0),   // Exit (south)
+                Vector2::new(100.0, 300.0), // Start
+                Vector2::new(300.0, 300.0), // Approach intersection
+                Vector2::new(320.0, 320.0), // Begin turn
+                Vector2::new(400.0, 400.0), // Mid turn
+                Vector2::new(400.0, 500.0), // Exit (south)
             ],
 
             // South approach (coming from north)
             (Direction::South, Route::Straight) => vec![
-                Vector2::new(400.0, 500.0),   // Start
-                Vector2::new(400.0, 400.0),   // Approach intersection
-                Vector2::new(400.0, 200.0),   // Through intersection
-                Vector2::new(400.0, 100.0),   // Exit
+                Vector2::new(400.0, 500.0), // Start
+                Vector2::new(400.0, 400.0), // Approach intersection
+                Vector2::new(400.0, 200.0), // Through intersection
+                Vector2::new(400.0, 100.0), // Exit
             ],
             (Direction::South, Route::Left) => vec![
-                Vector2::new(400.0, 500.0),   // Start
-                Vector2::new(400.0, 400.0),   // Approach intersection
-                Vector2::new(420.0, 320.0),   // Begin turn
-                Vector2::new(480.0, 300.0),   // Mid turn
-                Vector2::new(600.0, 300.0),   // Exit (east)
+                Vector2::new(400.0, 500.0), // Start
+                Vector2::new(400.0, 400.0), // Approach intersection
+                Vector2::new(420.0, 320.0), // Begin turn
+                Vector2::new(480.0, 300.0), // Mid turn
+                Vector2::new(600.0, 300.0), // Exit (east)
             ],
             (Direction::South, Route::Right) => vec![
-                Vector2::new(400.0, 500.0),   // Start
-                Vector2::new(400.0, 350.0),   // Approach intersection
-                Vector2::new(380.0, 320.0),   // Begin turn
-                Vector2::new(320.0, 300.0),   // Mid turn
-                Vector2::new(200.0, 300.0),   // Exit (west)
+                Vector2::new(400.0, 500.0), // Start
+                Vector2::new(400.0, 350.0), // Approach intersection
+                Vector2::new(380.0, 320.0), // Begin turn
+                Vector2::new(320.0, 300.0), // Mid turn
+                Vector2::new(200.0, 300.0), // Exit (west)
             ],
 
             // West approach (coming from east)
             (Direction::West, Route::Straight) => vec![
-                Vector2::new(700.0, 300.0),   // Start
-                Vector2::new(600.0, 300.0),   // Approach intersection
-                Vector2::new(400.0, 300.0),   // Through intersection
-                Vector2::new(200.0, 300.0),   // Exit
+                Vector2::new(700.0, 300.0), // Start
+                Vector2::new(600.0, 300.0), // Approach intersection
+                Vector2::new(400.0, 300.0), // Through intersection
+                Vector2::new(200.0, 300.0), // Exit
             ],
             (Direction::West, Route::Left) => vec![
-                Vector2::new(700.0, 300.0),   // Start
-                Vector2::new(600.0, 300.0),   // Approach intersection
-                Vector2::new(480.0, 320.0),   // Begin turn
-                Vector2::new(400.0, 400.0),   // Mid turn
-                Vector2::new(400.0, 500.0),   // Exit (south)
+                Vector2::new(700.0, 300.0), // Start
+                Vector2::new(600.0, 300.0), // Approach intersection
+                Vector2::new(480.0, 320.0), // Begin turn
+                Vector2::new(400.0, 400.0), // Mid turn
+                Vector2::new(400.0, 500.0), // Exit (south)
             ],
             (Direction::West, Route::Right) => vec![
-                Vector2::new(700.0, 300.0),   // Start
-                Vector2::new(500.0, 300.0),   // Approach intersection
-                Vector2::new(480.0, 280.0),   // Begin turn
-                Vector2::new(400.0, 200.0),   // Mid turn
-                Vector2::new(400.0, 100.0),   // Exit (north)
+                Vector2::new(700.0, 300.0), // Start
+                Vector2::new(500.0, 300.0), // Approach intersection
+                Vector2::new(480.0, 280.0), // Begin turn
+                Vector2::new(400.0, 200.0), // Mid turn
+                Vector2::new(400.0, 100.0), // Exit (north)
             ],
-
-
         }
     }
 
@@ -167,7 +162,7 @@ impl SmartRoadExample {
         format!(
             "Vehicles: {}, Moving: {}, Yielding: {}, Collisions: {}",
             telemetry.total_vehicles,
-            telemetry.moving_vehicles, 
+            telemetry.moving_vehicles,
             telemetry.yielding_vehicles,
             self.stats.collisions
         )
@@ -190,10 +185,10 @@ impl Default for SmartRoadExample {
 /// Example usage of the enhanced collision system
 pub fn run_collision_test() {
     let mut simulation = SmartRoadExample::new();
-    
+
     // Add some test vehicles
     simulation.add_vehicle(Direction::North, Route::Straight);
-    simulation.add_vehicle(Direction::East, Route::Straight);  // This should create a crossing conflict
+    simulation.add_vehicle(Direction::East, Route::Straight); // This should create a crossing conflict
     simulation.add_vehicle(Direction::North, Route::Left);
     simulation.add_vehicle(Direction::West, Route::Right);
 
@@ -206,9 +201,12 @@ pub fn run_collision_test() {
 
     for step in 0..total_steps {
         let collided_vehicles = simulation.update(delta_time);
-        
+
         if !collided_vehicles.is_empty() {
-            println!("Step {}: Collision detected! Vehicles: {:?}", step, collided_vehicles);
+            println!(
+                "Step {}: Collision detected! Vehicles: {:?}",
+                step, collided_vehicles
+            );
         }
 
         // Print telemetry every second
@@ -222,10 +220,13 @@ pub fn run_collision_test() {
         }
     }
 
-    println!("Test completed. Final stats: {}", simulation.get_telemetry());
+    println!(
+        "Test completed. Final stats: {}",
+        simulation.get_telemetry()
+    );
     println!("Key improvements demonstrated:");
     println!("- Conflict-cell based reservations instead of simple grid");
-    println!("- Priority-based yielding (Right > Straight > Left)"); 
+    println!("- Priority-based yielding (Right > Straight > Left)");
     println!("- Path-parameter based ETA calculations");
     println!("- Capsule collision detection for crossing vehicles");
     println!("- Hysteresis-based speed control");

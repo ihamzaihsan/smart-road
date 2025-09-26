@@ -7,7 +7,6 @@ pub struct VehicleAssets<'a> {
 }
 
 impl<'a> VehicleAssets<'a> {
-    
     pub fn new() -> Self {
         Self {
             car_textures: Vec::new(),

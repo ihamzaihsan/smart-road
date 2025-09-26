@@ -8,7 +8,7 @@ impl Point {
     pub fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
-    
+
     pub fn distance_to(&self, other: Point) -> f32 {
         let dx = self.x - other.x;
         let dy = self.y - other.y;
@@ -64,7 +64,7 @@ mod tests {
         assert!(conflict(a, b, 2.0));
         assert!(!conflict(a, b, 1.0));
     }
-    
+
     #[test]
     fn point_distance() {
         let p1 = Point::new(0.0, 0.0);

@@ -1,13 +1,13 @@
-pub mod core;
+pub mod algorithms;
 pub mod components;
+pub mod core;
+pub mod examples;
+pub mod input;
+pub mod rendering;
 pub mod resources;
 pub mod systems;
-pub mod algorithms;
-pub mod rendering;
-pub mod input;
 pub mod utils;
-pub mod examples;
 
-pub use core::*;
 pub use components::*;
+pub use core::*;
 pub use resources::*;

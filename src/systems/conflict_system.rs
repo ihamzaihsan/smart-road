@@ -10,8 +10,8 @@ pub struct ConflictCellId(pub u8);
 #[derive(Debug, Clone)]
 pub struct ConflictSpan {
     pub cell: ConflictCellId,
-    pub s_in: f32,   // Path parameter where vehicle enters this cell
-    pub s_out: f32,  // Path parameter where vehicle exits this cell
+    pub s_in: f32,  // Path parameter where vehicle enters this cell
+    pub s_out: f32, // Path parameter where vehicle exits this cell
 }
 
 /// Each path is parameterized by arc-length s in [0, s_total]
@@ -125,9 +125,9 @@ impl Path {
 /// Kinematic parameters for ETA calculations
 #[derive(Debug, Clone)]
 pub struct Kinematics {
-    pub v: f32,           // current speed (m/s)
-    pub a_max: f32,       // acceleration m/s^2
-    pub d_max: f32,       // braking m/s^2
+    pub v: f32,             // current speed (m/s)
+    pub a_max: f32,         // acceleration m/s^2
+    pub d_max: f32,         // braking m/s^2
     pub v_levels: [f32; 3], // [slow, med, fast] speeds
 }
 
@@ -164,9 +164,9 @@ pub struct Reservation {
 
 impl PartialEq for Reservation {
     fn eq(&self, other: &Self) -> bool {
-        self.vehicle_id == other.vehicle_id && 
-        (self.t_in - other.t_in).abs() < 1e-6 &&
-        (self.t_out - other.t_out).abs() < 1e-6
+        self.vehicle_id == other.vehicle_id
+            && (self.t_in - other.t_in).abs() < 1e-6
+            && (self.t_out - other.t_out).abs() < 1e-6
     }
 }
 
@@ -181,7 +181,10 @@ impl PartialOrd for Reservation {
 impl Ord for Reservation {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         // Primary: by start time
-        let t_ord = self.t_in.partial_cmp(&other.t_in).unwrap_or(std::cmp::Ordering::Equal);
+        let t_ord = self
+            .t_in
+            .partial_cmp(&other.t_in)
+            .unwrap_or(std::cmp::Ordering::Equal);
         if t_ord != std::cmp::Ordering::Equal {
             return t_ord;
         }
@@ -229,7 +232,8 @@ impl ConflictSystem {
 
         // Initialize calendars for each cell
         for id in 0..=8 {
-            self.cell_calendars.insert(ConflictCellId(id), BTreeSet::new());
+            self.cell_calendars
+                .insert(ConflictCellId(id), BTreeSet::new());
         }
 
         // Define conflict spans for each route
@@ -315,7 +319,7 @@ impl ConflictSystem {
         separation: f32,
     ) -> Result<(f32, f32), String> {
         let calendar = self.cell_calendars.get_mut(&cell_id).unwrap();
-        
+
         let mut t_in = ask_in;
         let max_iterations = 20; // Prevent infinite loops
         let mut iterations = 0;
@@ -344,8 +348,9 @@ impl ConflictSystem {
                 let their_end = res.t_out;
 
                 // Check if windows overlap with separation
-                let overlap = !(our_end + separation <= their_start || their_end + separation <= our_start);
-                
+                let overlap =
+                    !(our_end + separation <= their_start || their_end + separation <= our_start);
+
                 if overlap {
                     // Push our start time past their end
                     t_in = their_end + separation + 0.05;
@@ -375,18 +380,22 @@ impl ConflictSystem {
     }
 
     /// Get conflict spans for a vehicle's route
-    pub fn get_conflict_spans(&self, approach: Direction, route: Route) -> Option<&Vec<ConflictSpan>> {
+    pub fn get_conflict_spans(
+        &self,
+        approach: Direction,
+        route: Route,
+    ) -> Option<&Vec<ConflictSpan>> {
         self.conflict_map.get(&(approach, route))
     }
 
     /// Calculate priority for conflict resolution
     pub fn calculate_priority(_approach: Direction, route: Route, vehicle_id: u64) -> u32 {
         let route_priority = match route {
-            Route::Right => 3,    // Highest priority
+            Route::Right => 3, // Highest priority
             Route::Straight => 2,
-            Route::Left => 1,     // Lowest priority
+            Route::Left => 1, // Lowest priority
         };
-        
+
         // Combine route priority with vehicle ID for tie-breaking
         (route_priority << 16) | ((vehicle_id & 0xFFFF) as u32)
     }

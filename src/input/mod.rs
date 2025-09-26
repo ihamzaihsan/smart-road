@@ -4,16 +4,14 @@ use std::collections::HashSet;
 
 #[derive(Debug)]
 pub struct InputSystem {
-    
     pressed_keys: HashSet<Keycode>,
-    
+
     just_pressed_keys: HashSet<Keycode>,
-    
+
     just_released_keys: HashSet<Keycode>,
 }
 
 impl InputSystem {
-    
     pub fn new() -> Self {
         Self {
             pressed_keys: HashSet::new(),
@@ -30,13 +28,20 @@ impl InputSystem {
         // Process events
         for event in events {
             match event {
-                Event::KeyDown { keycode: Some(keycode), repeat: false, .. } => {
+                Event::KeyDown {
+                    keycode: Some(keycode),
+                    repeat: false,
+                    ..
+                } => {
                     if !self.pressed_keys.contains(keycode) {
                         self.just_pressed_keys.insert(*keycode);
                         self.pressed_keys.insert(*keycode);
                     }
                 }
-                Event::KeyUp { keycode: Some(keycode), .. } => {
+                Event::KeyUp {
+                    keycode: Some(keycode),
+                    ..
+                } => {
                     if self.pressed_keys.contains(keycode) {
                         self.just_released_keys.insert(*keycode);
                         self.pressed_keys.remove(keycode);

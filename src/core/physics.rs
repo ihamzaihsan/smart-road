@@ -1,4 +1,4 @@
-use crate::components::Vehicle;
+use crate::components::{Direction, Vehicle};
 use nalgebra::Vector2;
 use std::collections::HashMap;
 pub const MIN_SAFETY_DISTANCE: f32 = 75.0;
@@ -6,8 +6,7 @@ pub const MAX_ACCELERATION: f32 = 400.0;
 pub const MAX_DECELERATION: f32 = 2000.0;
 pub const EMERGENCY_DECELERATION: f32 = 3000.0;
 pub const SPEED_LEVELS: [f32; 12] = [
-    400.0, 270.0, 240.0, 210.0, 180.0, 150.0,
-    120.0, 100.0, 80.0, 60.0, 40.0, 20.0
+    400.0, 270.0, 240.0, 210.0, 180.0, 150.0, 120.0, 100.0, 80.0, 60.0, 40.0, 20.0,
 ];
 pub const TIME_HEADWAY: f32 = 2.0;
 pub const MIN_BUFFER_DISTANCE: f32 = 120.0;
@@ -26,12 +25,22 @@ impl ConflictCalendar {
     }
     fn snap_position(pos: Vector2<f32>) -> (i32, i32) {
         const CELL_SIZE: f32 = 20.0;
-        ((pos.x / CELL_SIZE).round() as i32, (pos.y / CELL_SIZE).round() as i32)
+        (
+            (pos.x / CELL_SIZE).round() as i32,
+            (pos.y / CELL_SIZE).round() as i32,
+        )
     }
-    pub fn try_reserve(&mut self, vehicle_id: u64, position: Vector2<f32>, start_time: f32, current_time: f32) -> Result<(), f32> {
+    pub fn try_reserve(
+        &mut self,
+        vehicle_id: u64,
+        position: Vector2<f32>,
+        start_time: f32,
+        current_time: f32,
+    ) -> Result<(), f32> {
         let key = Self::snap_position(position);
         let end_time = start_time + CONFLICT_RESERVATION_WINDOW;
-        self.reservations.retain(|_, (_, expiry)| *expiry > current_time);
+        self.reservations
+            .retain(|_, (_, expiry)| *expiry > current_time);
         if let Some((existing_id, existing_end)) = self.reservations.get(&key) {
             if *existing_id != vehicle_id {
                 return Err((start_time - *existing_end).abs());
@@ -47,13 +56,15 @@ impl ConflictCalendar {
 }
 #[inline]
 pub fn quantize_speed(speed: f32) -> f32 {
-    SPEED_LEVELS.iter().fold(SPEED_LEVELS[0], |closest, &level| {
-        if (speed - level).abs() < (speed - closest).abs() {
-            level
-        } else {
-            closest
-        }
-    })
+    SPEED_LEVELS
+        .iter()
+        .fold(SPEED_LEVELS[0], |closest, &level| {
+            if (speed - level).abs() < (speed - closest).abs() {
+                level
+            } else {
+                closest
+            }
+        })
 }
 #[inline]
 pub fn quantize_with_hysteresis(current_speed: f32, desired_speed: f32) -> f32 {
@@ -169,14 +180,49 @@ impl VehiclePhysics {
             0.0
         };
         vehicle.speed += acceleration * delta_time;
-        vehicle.speed = vehicle.speed.clamp(0.0, vehicle.target_speed.max(vehicle.speed * 0.95));
-        let movement_vector = vehicle.direction.movement_vector();
-        vehicle.position += movement_vector * vehicle.speed * delta_time;
-        if let Some(waypoint) = vehicle.get_current_waypoint() {
-            let to_waypoint = waypoint - vehicle.position;
-            if to_waypoint.dot(&movement_vector) < 0.0 {
-                vehicle.advance_waypoint();
+        vehicle.speed = vehicle
+            .speed
+            .clamp(0.0, vehicle.target_speed.max(vehicle.speed * 0.95));
+
+        let mut remaining_distance = vehicle.speed * delta_time;
+        while remaining_distance > 0.0 {
+            if let Some(waypoint) = vehicle.get_current_waypoint() {
+                let to_waypoint = waypoint - vehicle.position;
+                let distance = to_waypoint.magnitude();
+                if distance < 1.0 {
+                    vehicle.advance_waypoint();
+                    continue;
+                }
+
+                let direction_vec = to_waypoint / distance;
+                Self::update_heading(vehicle, &direction_vec);
+
+                if remaining_distance < distance {
+                    vehicle.position += direction_vec * remaining_distance;
+                    remaining_distance = 0.0;
+                } else {
+                    vehicle.position = waypoint;
+                    vehicle.advance_waypoint();
+                    remaining_distance -= distance;
+                }
+            } else {
+                let movement_vector = vehicle.direction.movement_vector();
+                if movement_vector.magnitude_squared() > 0.0 {
+                    Self::update_heading(vehicle, &movement_vector);
+                    vehicle.position += movement_vector * remaining_distance;
+                }
+                remaining_distance = 0.0;
             }
+        }
+    }
+
+    fn update_heading(vehicle: &mut Vehicle, direction_vec: &Vector2<f32>) {
+        let angle = std::f32::consts::FRAC_PI_2 - direction_vec.y.atan2(direction_vec.x);
+        vehicle.rotation = angle;
+        if let Some(new_direction) =
+            Direction::from_vector(Vector2::new(direction_vec.x, direction_vec.y))
+        {
+            vehicle.direction = new_direction;
         }
     }
     fn get_max_acceleration(speed: f32) -> f32 {
@@ -204,7 +250,11 @@ impl VehiclePhysics {
     }
     pub fn time_to_point(vehicle: &Vehicle, point: Vector2<f32>) -> f32 {
         let dist = (point - vehicle.position).magnitude();
-        let v = if vehicle.speed > 1.0 { vehicle.speed } else { vehicle.target_speed.max(1.0) };
+        let v = if vehicle.speed > 1.0 {
+            vehicle.speed
+        } else {
+            vehicle.target_speed.max(1.0)
+        };
         dist / v
     }
 }

@@ -55,8 +55,11 @@ fn main() -> Result<(), String> {
         // Check for ESC key to quit
         for event in &events {
             match event {
-                Event::Quit { .. } |
-                Event::KeyDown { keycode: Some(sdl2::keyboard::Keycode::Escape), .. } => {
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(sdl2::keyboard::Keycode::Escape),
+                    ..
+                } => {
                     break 'running;
                 }
                 _ => {}

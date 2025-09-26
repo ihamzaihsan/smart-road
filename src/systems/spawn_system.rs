@@ -1,8 +1,8 @@
 use crate::components::{Direction, Route};
-use std::collections::HashMap;
-use rand::Rng;
-use nalgebra::Vector2;
 use instant::Instant;
+use nalgebra::Vector2;
+use rand::Rng;
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct SpawnManager {
@@ -21,10 +21,10 @@ impl Default for SpawnManager {
             next_id: 1,
             last_spawn_time: HashMap::new(),
             last_lane_spawn_time: HashMap::new(),
-            spawn_cooldown: 0.4,  // Per-direction cooldown
-            lane_cooldown: 1.0,   // Per-lane cooldown
+            spawn_cooldown: 0.4,   // Per-direction cooldown
+            lane_cooldown: 1.0,    // Per-lane cooldown
             spawn_distance: 580.0, // Near screen edges (screen is 1200x800, so edges are at ±600, ±400)
-            min_spawn_separation: 90.0,  
+            min_spawn_separation: 90.0,
         }
     }
 }
@@ -52,9 +52,14 @@ impl SpawnManager {
         self.last_lane_spawn_time.insert(key, time);
     }
 
-    pub fn find_available_lane(&self, direction: Direction, road_config: &crate::resources::RoadConfig, current_time: f64) -> Option<usize> {
+    pub fn find_available_lane(
+        &self,
+        direction: Direction,
+        road_config: &crate::resources::RoadConfig,
+        current_time: f64,
+    ) -> Option<usize> {
         let lane_centers = self.get_lane_centers(direction, road_config);
-        
+
         for (i, _) in lane_centers.iter().enumerate() {
             let key = (direction, i);
             match self.last_lane_spawn_time.get(&key) {
@@ -66,11 +71,16 @@ impl SpawnManager {
                 None => return Some(i),
             }
         }
-        
+
         None
     }
 
-    pub fn get_lane_center_by_index(&self, direction: Direction, lane_index: usize, road_config: &crate::resources::RoadConfig) -> f32 {
+    pub fn get_lane_center_by_index(
+        &self,
+        direction: Direction,
+        lane_index: usize,
+        road_config: &crate::resources::RoadConfig,
+    ) -> f32 {
         let lane_centers = self.get_lane_centers(direction, road_config);
         if lane_index < lane_centers.len() {
             lane_centers[lane_index]
@@ -89,7 +99,11 @@ impl SpawnManager {
         }
     }
 
-    pub fn get_lane_centers(&self, direction: Direction, road_config: &crate::resources::RoadConfig) -> Vec<f32> {
+    pub fn get_lane_centers(
+        &self,
+        direction: Direction,
+        road_config: &crate::resources::RoadConfig,
+    ) -> Vec<f32> {
         let lane_width = road_config.lane_width;
         let lanes_per_direction = road_config.num_lanes;
         let total_lanes = lanes_per_direction * 2;
@@ -103,7 +117,8 @@ impl SpawnManager {
         }
 
         // Return appropriate lanes based on direction
-        let (negative_offset_lanes, positive_offset_lanes) = all_lane_centers.split_at(lanes_per_direction);
+        let (negative_offset_lanes, positive_offset_lanes) =
+            all_lane_centers.split_at(lanes_per_direction);
 
         match direction {
             Direction::North => {
@@ -125,7 +140,11 @@ impl SpawnManager {
         }
     }
 
-    pub fn get_random_lane_center(&self, direction: Direction, road_config: &crate::resources::RoadConfig) -> f32 {
+    pub fn get_random_lane_center(
+        &self,
+        direction: Direction,
+        road_config: &crate::resources::RoadConfig,
+    ) -> f32 {
         let lane_centers = self.get_lane_centers(direction, road_config);
         let mut rng = rand::thread_rng();
         let index = rng.gen_range(0..lane_centers.len());
@@ -145,11 +164,10 @@ impl SpawnManager {
 
 #[derive(Debug)]
 pub struct AutoSpawnTimer {
-    
     pub last_spawn_time: Instant,
-    
+
     pub spawn_interval: f32,
-    
+
     pub enabled: bool,
 }
 
@@ -157,14 +175,13 @@ impl Default for AutoSpawnTimer {
     fn default() -> Self {
         Self {
             last_spawn_time: Instant::now(),
-            spawn_interval: 0.5,  // Fast spawning - 0.5 second interval
-            enabled: false,       // Disabled by default - toggle with R key
+            spawn_interval: 0.5, // Fast spawning - 0.5 second interval
+            enabled: false,      // Disabled by default - toggle with R key
         }
     }
 }
 
 impl AutoSpawnTimer {
-    
     pub fn should_spawn(&self) -> bool {
         if !self.enabled {
             return false;
@@ -186,5 +203,3 @@ impl AutoSpawnTimer {
         }
     }
 }
-
-

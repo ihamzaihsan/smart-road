@@ -1,9 +1,6 @@
 use crate::{
-    components::path_vehicle::PathVehicle,
-    systems::{
-        collision_system::EnhancedCollisionSystem,
-    },
-    resources::stats::Stats,
+    components::path_vehicle::PathVehicle, resources::stats::Stats,
+    systems::collision_system::EnhancedCollisionSystem,
 };
 use nalgebra::Vector2;
 
@@ -26,7 +23,7 @@ impl TrafficController {
     /// Main update loop for traffic management
     pub fn update(&mut self, delta_time: f32, stats: &mut Stats) -> Vec<u64> {
         self.current_time += delta_time;
-        
+
         // Update vehicle physics and positions separately to avoid borrow conflicts
         let vehicle_count = self.vehicles.len();
         for i in 0..vehicle_count {
@@ -34,7 +31,7 @@ impl TrafficController {
             if let Some(target_eta) = self.vehicles[i].target_eta {
                 self.vehicles[i].apply_speed_control(target_eta, self.current_time);
             }
-            
+
             // Check emergency braking
             let needs_emergency_brake = self.check_emergency_brake_needed_by_index(i);
             if needs_emergency_brake {
@@ -47,8 +44,11 @@ impl TrafficController {
             let local_density = self.calculate_local_density_by_index(i);
             if local_density > 0.7 {
                 // High density - slow down
-                self.vehicles[i].target_speed = self.vehicles[i].kinematics.v_levels[0].min(self.vehicles[i].target_speed);
-            } else if local_density < 0.3 && self.vehicles[i].state != crate::components::VehicleState::Yielding {
+                self.vehicles[i].target_speed =
+                    self.vehicles[i].kinematics.v_levels[0].min(self.vehicles[i].target_speed);
+            } else if local_density < 0.3
+                && self.vehicles[i].state != crate::components::VehicleState::Yielding
+            {
                 // Low density - can speed up
                 self.vehicles[i].target_speed = self.vehicles[i].kinematics.v_levels[2].min(300.0);
             }
@@ -59,7 +59,8 @@ impl TrafficController {
                     if self.current_time > window.1 + 1.0 {
                         // Grace period after reservation expires
                         self.vehicles[i].state = crate::components::VehicleState::Moving;
-                        self.vehicles[i].target_speed = self.vehicles[i].kinematics.v_levels[1]; // Medium speed
+                        self.vehicles[i].target_speed = self.vehicles[i].kinematics.v_levels[1];
+                        // Medium speed
                     }
                 }
             }
@@ -78,7 +79,8 @@ impl TrafficController {
         );
 
         // Remove completed or collided vehicles
-        self.vehicles.retain(|v| !v.is_path_complete() && !collided_ids.contains(&v.id));
+        self.vehicles
+            .retain(|v| !v.is_path_complete() && !collided_ids.contains(&v.id));
 
         collided_ids
     }
@@ -91,7 +93,7 @@ impl TrafficController {
         }
 
         // Note: Emergency braking and density checks are now handled in the main update loop
-        
+
         // Reset yielding state if no longer needed
         if vehicle.state == crate::components::VehicleState::Yielding {
             if let Some(window) = vehicle.reserved_time_window {
@@ -109,15 +111,19 @@ impl TrafficController {
         let vehicle = &self.vehicles[vehicle_index];
         let emergency_distance = 50.0;
         let emergency_ttc = 1.5; // seconds
-        
+
         for (i, other) in self.vehicles.iter().enumerate() {
             if i == vehicle_index {
                 continue;
             }
-            
+
             let distance = (vehicle.position - other.position).magnitude();
             if distance < emergency_distance {
-                if let Some(ttc) = crate::systems::capsule_collision::CapsuleCollision::calculate_ttc(vehicle, other) {
+                if let Some(ttc) =
+                    crate::systems::capsule_collision::CapsuleCollision::calculate_ttc(
+                        vehicle, other,
+                    )
+                {
                     if ttc < emergency_ttc {
                         return true;
                     }
@@ -132,15 +138,16 @@ impl TrafficController {
         let vehicle = &self.vehicles[vehicle_index];
         let radius = 100.0;
         let max_vehicles = 8.0; // Expected max vehicles in radius
-        
-        let nearby_count = self.vehicles.iter()
+
+        let nearby_count = self
+            .vehicles
+            .iter()
             .enumerate()
             .filter(|(i, other)| {
-                *i != vehicle_index && 
-                (other.position - vehicle.position).magnitude() < radius
+                *i != vehicle_index && (other.position - vehicle.position).magnitude() < radius
             })
             .count() as f32;
-        
+
         (nearby_count / max_vehicles).min(1.0)
     }
 
@@ -152,17 +159,17 @@ impl TrafficController {
     /// Get telemetry data for debugging
     pub fn get_telemetry(&self) -> TrafficTelemetry {
         let mut telemetry = TrafficTelemetry::default();
-        
+
         for vehicle in &self.vehicles {
             telemetry.total_vehicles += 1;
-            
+
             match vehicle.state {
                 crate::components::VehicleState::Moving => telemetry.moving_vehicles += 1,
                 crate::components::VehicleState::Yielding => telemetry.yielding_vehicles += 1,
                 crate::components::VehicleState::Stopped => telemetry.stopped_vehicles += 1,
                 crate::components::VehicleState::Waiting => telemetry.waiting_vehicles += 1,
             }
-            
+
             if vehicle.next_conflict_cell.is_some() {
                 telemetry.vehicles_with_reservations += 1;
             }
@@ -170,16 +177,19 @@ impl TrafficController {
             // Calculate average speed
             telemetry.average_speed += vehicle.speed;
         }
-        
+
         if telemetry.total_vehicles > 0 {
             telemetry.average_speed /= telemetry.total_vehicles as f32;
         }
-        
-        telemetry.reservation_count = self.collision_system.conflict_system.cell_calendars
+
+        telemetry.reservation_count = self
+            .collision_system
+            .conflict_system
+            .cell_calendars
             .values()
             .map(|calendar| calendar.len())
             .sum();
-        
+
         telemetry
     }
 
@@ -209,10 +219,17 @@ impl TrafficTelemetry {
     pub fn print_debug(&self) {
         println!("=== Traffic Telemetry ===");
         println!("Total vehicles: {}", self.total_vehicles);
-        println!("Moving: {}, Yielding: {}, Stopped: {}, Waiting: {}", 
-                self.moving_vehicles, self.yielding_vehicles, 
-                self.stopped_vehicles, self.waiting_vehicles);
-        println!("Vehicles with reservations: {}", self.vehicles_with_reservations);
+        println!(
+            "Moving: {}, Yielding: {}, Stopped: {}, Waiting: {}",
+            self.moving_vehicles,
+            self.yielding_vehicles,
+            self.stopped_vehicles,
+            self.waiting_vehicles
+        );
+        println!(
+            "Vehicles with reservations: {}",
+            self.vehicles_with_reservations
+        );
         println!("Active reservations: {}", self.reservation_count);
         println!("Average speed: {:.1} m/s", self.average_speed);
         println!("========================");
