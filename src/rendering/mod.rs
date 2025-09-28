@@ -64,6 +64,9 @@ impl<'a> Renderer<'a> {
         // Draw lane markings
         self.render_lane_markings(road_config, center_x, center_y, window_width, window_height)?;
 
+        // Draw lane separation lines at intersection boundaries
+        self.render_lane_separation_lines(road_config, center_x, center_y)?;
+
         Ok(())
     }
 
@@ -84,6 +87,10 @@ impl<'a> Renderer<'a> {
 
         // Calculate intersection bounds (no dashes in center)
         let intersection_half = road_width / 2;
+        
+        // Calculate separation line position for north direction lanes (which approach from the south)
+        let separation_line_buffer = dash_length + dash_gap; // Buffer zone around separation lines
+        let south_separation_y = center_y - intersection_half; // North-bound lanes approach this line
 
         // Calculate all lane positions from left edge
         let left_edge = -road_width / 2;
@@ -124,10 +131,15 @@ impl<'a> Renderer<'a> {
             while y < window_height as i32 {
                 // Skip dashes in intersection area
                 if (y - center_y).abs() > intersection_half {
-                    let dash_rect = Rect::new(x - 1, y, 2, dash_length as u32);
-                    self.canvas
-                        .fill_rect(dash_rect)
-                        .map_err(|e| e.to_string())?;
+                    // Skip dashes near south separation line (where north-bound lanes approach)
+                    let near_south_line = (y - south_separation_y).abs() < separation_line_buffer;
+                    
+                    if !near_south_line {
+                        let dash_rect = Rect::new(x - 1, y, 2, dash_length as u32);
+                        self.canvas
+                            .fill_rect(dash_rect)
+                            .map_err(|e| e.to_string())?;
+                    }
                 }
                 y += dash_length + dash_gap;
             }
@@ -182,6 +194,68 @@ impl<'a> Renderer<'a> {
         self.canvas
             .fill_rect(bottom_median_rect)
             .map_err(|e| e.to_string())?;
+
+        Ok(())
+    }
+
+    fn render_lane_separation_lines(
+        &mut self,
+        road_config: &RoadConfig,
+        center_x: i32,
+        center_y: i32,
+    ) -> Result<(), String> {
+        let lane_width = road_config.lane_width as i32;
+        let lanes_per_direction = road_config.num_lanes;
+        let intersection_half = (lane_width * lanes_per_direction as i32 * 2) / 2;
+
+        // Line thickness
+        let line_thickness = 3;
+
+        self.canvas.set_draw_color(Color::RGB(255, 255, 255));
+
+        // East direction spawning lanes (coming from left, going right)
+        // These are the bottom 3 lanes in the vertical road
+        let east_line_x = center_x - intersection_half;
+        let east_line_start_y = center_y; // Start at center (after median)
+        let east_line_end_y = center_y + (lanes_per_direction as i32 * lane_width);
+        
+        for y in east_line_start_y..=east_line_end_y {
+            let line_rect = Rect::new(east_line_x - line_thickness / 2, y, line_thickness as u32, 1);
+            self.canvas.fill_rect(line_rect).map_err(|e| e.to_string())?;
+        }
+
+        // West direction spawning lanes (coming from right, going left)
+        // These are the top 3 lanes in the vertical road
+        let west_line_x = center_x + intersection_half;
+        let west_line_start_y = center_y - (lanes_per_direction as i32 * lane_width);
+        let west_line_end_y = center_y;
+        
+        for y in west_line_start_y..=west_line_end_y {
+            let line_rect = Rect::new(west_line_x - line_thickness / 2, y, line_thickness as u32, 1);
+            self.canvas.fill_rect(line_rect).map_err(|e| e.to_string())?;
+        }
+
+        // North direction spawning lanes (coming from bottom, going up)
+        // These are the right 3 lanes in the horizontal road
+        let north_line_y = center_y + intersection_half;
+        let north_line_start_x = center_x; // Start at center (after median)
+        let north_line_end_x = center_x + (lanes_per_direction as i32 * lane_width);
+        
+        for x in north_line_start_x..=north_line_end_x {
+            let line_rect = Rect::new(x, north_line_y - line_thickness / 2, 1, line_thickness as u32);
+            self.canvas.fill_rect(line_rect).map_err(|e| e.to_string())?;
+        }
+
+        // South direction spawning lanes (coming from top, going down)
+        // These are the left 3 lanes in the horizontal road
+        let south_line_y = center_y - intersection_half;
+        let south_line_start_x = center_x - (lanes_per_direction as i32 * lane_width);
+        let south_line_end_x = center_x;
+        
+        for x in south_line_start_x..=south_line_end_x {
+            let line_rect = Rect::new(x, south_line_y - line_thickness / 2, 1, line_thickness as u32);
+            self.canvas.fill_rect(line_rect).map_err(|e| e.to_string())?;
+        }
 
         Ok(())
     }
