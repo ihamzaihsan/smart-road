@@ -318,7 +318,10 @@ impl ConflictSystem {
         duration: f32,
         separation: f32,
     ) -> Result<(f32, f32), String> {
-        let calendar = self.cell_calendars.get_mut(&cell_id).unwrap();
+        let calendar = self
+            .cell_calendars
+            .get_mut(&cell_id)
+            .ok_or_else(|| format!("Conflict cell {:?} not found", cell_id))?;
 
         let mut t_in = ask_in;
         let max_iterations = 20; // Prevent infinite loops

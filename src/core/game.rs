@@ -28,6 +28,8 @@ pub struct Game<'a> {
     last_auto_spawn_at: Instant,
     min_auto_spawn_gap: Duration,
     last_lane_used: std::collections::HashMap<Direction, usize>,
+    // Priority system tracking
+    current_intersection_user: Option<u64>, // ID of vehicle currently using intersection
 }
 impl<'a> Game<'a> {
     pub fn new(texture_creator: &'a TextureCreator<WindowContext>) -> Result<Self, String> {
@@ -55,6 +57,7 @@ impl<'a> Game<'a> {
             last_auto_spawn_at: now,
             min_auto_spawn_gap: Duration::from_secs_f32(0.8),
             last_lane_used: std::collections::HashMap::new(),
+            current_intersection_user: None,
         })
     }
     pub fn update(&mut self, events: &[Event]) -> bool {
@@ -214,12 +217,14 @@ impl<'a> Game<'a> {
             speed: 0.0,
             state: VehicleState::Moving,
             route,
+            lane_index,
             direction,
             target_speed: SPEED_LEVELS[0],
             rotation,
             texture_index,
             path,
             path_index: 1,
+            queue_target: None,
         };
         self.vehicles.push(vehicle);
     }
@@ -263,8 +268,12 @@ impl<'a> Game<'a> {
                 // Determine the entry lane centers and compute the lane "rank" from center
                 // (0 = innermost lane, larger = further from center). Then pick the exit
                 // lane with the same rank so inner lanes map to inner lanes, outer to outer.
-                let entry_lane_centers = self.spawn_manager.get_lane_centers(direction, &self.road_config);
-                let exit_lane_centers = self.spawn_manager.get_lane_centers(exit_direction, &self.road_config);
+                let entry_lane_centers = self
+                    .spawn_manager
+                    .get_lane_centers(direction, &self.road_config);
+                let exit_lane_centers = self
+                    .spawn_manager
+                    .get_lane_centers(exit_direction, &self.road_config);
 
                 // Build arrays of indices sorted by absolute distance from center (ascending)
                 let mut entry_indices: Vec<usize> = (0..entry_lane_centers.len()).collect();
@@ -376,7 +385,13 @@ impl<'a> Game<'a> {
             if let Some(waypoint) = v.get_current_waypoint() {
                 let dist = (v.position - waypoint).magnitude();
                 let base_limit = speed_tier_from_distance(dist, road_half_width);
-                v.target_speed = base_limit;
+                // Only apply speed reduction when very close to waypoint to avoid slow movement
+                if dist < road_half_width * 0.5 {
+                    v.target_speed = base_limit;
+                } else {
+                    // Allow normal cruising speed when not near waypoint
+                    v.target_speed = v.target_speed.max(SPEED_LEVELS[1]); // At least medium speed
+                }
             }
         }
         for i in 0..self.vehicles.len() {
@@ -417,6 +432,9 @@ impl<'a> Game<'a> {
                 }
             }
         }
+        // Priority-based intersection control
+        self.apply_priority_based_intersection_control(delta_time);
+
         for v in &mut self.vehicles {
             if v.state != VehicleState::Moving {
                 continue;
@@ -487,6 +505,219 @@ impl<'a> Game<'a> {
         let movement_vector = vehicle1.direction.movement_vector();
         to_other.dot(&movement_vector) > 0.0
     }
+
+    /// Apply priority-based intersection control
+    fn apply_priority_based_intersection_control(&mut self, delta_time: f32) {
+        let intersection_center = Vector2::new(0.0, 0.0);
+        let intersection_half = self.road_config.lane_width * self.road_config.num_lanes as f32;
+        let max_queue_distance = intersection_half * 1.25;
+        let min_queue_distance = intersection_half * 0.6;
+        let approach_distance = self
+            .simulation_config
+            .detection_distance
+            .clamp(min_queue_distance, max_queue_distance);
+        let intersection_radius = intersection_half * 0.55; // Core intersection area
+
+        // Clear the current intersection user if they have exited the core area
+        if let Some(current_user_id) = self.current_intersection_user {
+            let user_still_in_intersection = self.vehicles.iter().any(|v| {
+                v.id == current_user_id
+                    && (v.position - intersection_center).magnitude() < intersection_radius
+            });
+
+            if !user_still_in_intersection {
+                self.current_intersection_user = None;
+            }
+        }
+
+        struct Candidate {
+            index: usize,
+            distance_along: f32,
+            priority: u32,
+            direction: Direction,
+            lane_index: usize,
+        }
+
+        let mut queue_candidates: Vec<Candidate> = Vec::new();
+        let mut release_indices: Vec<usize> = Vec::new();
+        let mut assigned_targets: Vec<(usize, Vector2<f32>, Direction)> = Vec::new();
+
+        for i in 0..self.vehicles.len() {
+            let vehicle = &self.vehicles[i];
+
+            if self.current_intersection_user == Some(vehicle.id) {
+                continue;
+            }
+
+            let approach_vector = vehicle.direction.movement_vector();
+            let relative_to_center = intersection_center - vehicle.position;
+            let distance_along = relative_to_center.dot(&approach_vector);
+            let inside_core =
+                (vehicle.position - intersection_center).magnitude() < intersection_radius;
+
+            if inside_core {
+                continue;
+            }
+
+            if distance_along >= 0.0 && distance_along <= approach_distance {
+                queue_candidates.push(Candidate {
+                    index: i,
+                    distance_along,
+                    priority: Game::calculate_vehicle_priority(vehicle),
+                    direction: vehicle.direction,
+                    lane_index: vehicle.lane_index,
+                });
+            } else if vehicle.state == VehicleState::Waiting {
+                release_indices.push(i);
+            }
+        }
+
+        // Release vehicles that were waiting but have moved away from the queue zone
+        for idx in release_indices {
+            if let Some(vehicle) = self.vehicles.get_mut(idx) {
+                vehicle.state = VehicleState::Moving;
+                vehicle.queue_target = None;
+                vehicle.target_speed = vehicle.target_speed.max(SPEED_LEVELS[2]);
+            }
+        }
+
+        queue_candidates.sort_by(|a, b| {
+            b.priority.cmp(&a.priority).then(
+                a.distance_along
+                    .partial_cmp(&b.distance_along)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
+        });
+
+        let mut waiting_candidate_indices: Vec<usize> = Vec::new();
+
+        for (order, candidate) in queue_candidates.iter().enumerate() {
+            let vehicle = &mut self.vehicles[candidate.index];
+            if self.current_intersection_user == Some(vehicle.id) {
+                continue;
+            }
+
+            let should_grant_access = self.current_intersection_user.is_none() && order == 0;
+
+            if should_grant_access {
+                vehicle.state = VehicleState::Moving;
+                vehicle.queue_target = None;
+                vehicle.target_speed = vehicle.target_speed.max(SPEED_LEVELS[1]);
+                vehicle.speed = vehicle.speed.max(SPEED_LEVELS[7]);
+                self.current_intersection_user = Some(vehicle.id);
+            } else {
+                vehicle.state = VehicleState::Waiting;
+                vehicle.target_speed = 0.0;
+                vehicle.speed = vehicle.speed.min(SPEED_LEVELS[7]);
+                waiting_candidate_indices.push(order);
+            }
+        }
+
+        // Arrange waiting vehicles into per-lane queues with consistent spacing
+        use std::collections::HashMap;
+        let mut lane_waiters: HashMap<(Direction, usize), Vec<(usize, f32)>> = HashMap::new();
+
+        for &candidate_idx in &waiting_candidate_indices {
+            let candidate = &queue_candidates[candidate_idx];
+            lane_waiters
+                .entry((candidate.direction, candidate.lane_index))
+                .or_insert_with(Vec::new)
+                .push((candidate.index, candidate.distance_along));
+        }
+
+        let head_gap = self.road_config.lane_width * 1.1;
+        let queue_spacing = self.road_config.lane_width * 1.5;
+
+        for ((direction, lane_index), mut entries) in lane_waiters {
+            entries.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+            let lane_center = self.spawn_manager.get_lane_center_by_index(
+                direction,
+                lane_index,
+                &self.road_config,
+            );
+            let entry_boundary = Self::boundary_before(direction, intersection_half);
+            let approach_vector = direction.movement_vector();
+
+            let front_position = if matches!(direction, Direction::North | Direction::South) {
+                Vector2::new(lane_center, entry_boundary)
+            } else {
+                Vector2::new(entry_boundary, lane_center)
+            } - approach_vector * head_gap;
+
+            for (queue_pos, (vehicle_idx, _)) in entries.iter().enumerate() {
+                let depth = head_gap + queue_spacing * queue_pos as f32;
+                if depth > approach_distance {
+                    continue;
+                }
+
+                let target_position =
+                    front_position - approach_vector * (queue_spacing * queue_pos as f32);
+                let target_distance = (intersection_center - target_position).dot(&approach_vector);
+                if target_distance > approach_distance {
+                    continue;
+                }
+                assigned_targets.push((*vehicle_idx, target_position, direction));
+            }
+        }
+
+        for (idx, target, direction) in assigned_targets {
+            if let Some(vehicle) = self.vehicles.get_mut(idx) {
+                vehicle.queue_target = Some(target);
+                vehicle.rotation = direction.rotation_angle();
+                vehicle.speed = vehicle.speed.min(SPEED_LEVELS[8]); // bleed speed when entering queue
+            }
+        }
+
+        self.update_waiting_vehicle_positions(delta_time);
+    }
+
+    fn update_waiting_vehicle_positions(&mut self, delta_time: f32) {
+        let approach_speed = SPEED_LEVELS[6]; // smooth glide into queue (~120)
+        for vehicle in &mut self.vehicles {
+            if vehicle.state == VehicleState::Waiting {
+                if let Some(target) = vehicle.queue_target {
+                    let to_target = target - vehicle.position;
+                    let distance = to_target.magnitude();
+                    if distance > 0.5 {
+                        let max_step = approach_speed * delta_time;
+                        if max_step >= distance {
+                            vehicle.position = target;
+                            vehicle.speed = 0.0;
+                        } else {
+                            let direction_vec = to_target / distance;
+                            vehicle.position += direction_vec * max_step;
+                            vehicle.speed = 0.0;
+                        }
+                    } else {
+                        vehicle.position = target;
+                        vehicle.speed = 0.0;
+                    }
+                }
+            } else {
+                vehicle.queue_target = None;
+            }
+        }
+    }
+
+    /// Calculate vehicle priority based on route type
+    fn calculate_vehicle_priority(vehicle: &Vehicle) -> u32 {
+        match vehicle.route {
+            Route::Right => 3,    // Highest priority - minimal intersection time
+            Route::Straight => 2, // Medium priority
+            Route::Left => 1,     // Lowest priority - longest intersection time
+        }
+    }
+
+    /// Check if a vehicle is near the intersection
+    fn is_near_intersection(&self, position: &Vector2<f32>) -> bool {
+        let intersection_size = self.road_config.lane_width * self.road_config.num_lanes as f32;
+        let approach_distance = intersection_size * 1.5; // Detection zone around intersection
+
+        // Check if vehicle is within approach distance of intersection center
+        position.magnitude() < approach_distance
+    }
+
     pub fn render(&mut self, renderer: &mut Renderer) -> Result<(), String> {
         renderer.clear();
         renderer.render_roads(&self.road_config)?;

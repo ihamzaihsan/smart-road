@@ -76,21 +76,16 @@ pub fn quantize_with_hysteresis(current_speed: f32, desired_speed: f32) -> f32 {
 }
 #[inline]
 pub fn speed_tier_from_distance(dist: f32, road_half_width: f32) -> f32 {
-    const DISTANCE_MULTIPLIERS: [f32; 6] = [2.5, 2., 1.5, 1.0, 0.75, 0.25];
+    // Make speed reduction less aggressive - only slow down when very close to waypoint
+    const DISTANCE_MULTIPLIERS: [f32; 4] = [1.0, 0.5, 0.25, 0.1];
     if dist >= DISTANCE_MULTIPLIERS[0] * road_half_width {
-        SPEED_LEVELS[0]
+        SPEED_LEVELS[1] // Medium speed instead of slowest
     } else if dist >= DISTANCE_MULTIPLIERS[1] * road_half_width {
-        SPEED_LEVELS[1]
+        SPEED_LEVELS[2] // Still reasonable speed
     } else if dist >= DISTANCE_MULTIPLIERS[2] * road_half_width {
-        SPEED_LEVELS[2]
-    } else if dist >= DISTANCE_MULTIPLIERS[3] * road_half_width {
-        SPEED_LEVELS[3]
-    } else if dist >= DISTANCE_MULTIPLIERS[4] * road_half_width {
-        SPEED_LEVELS[4]
-    } else if dist >= DISTANCE_MULTIPLIERS[5] * road_half_width {
-        SPEED_LEVELS[5]
+        SPEED_LEVELS[3] // Slow down when approaching
     } else {
-        SPEED_LEVELS[6]
+        SPEED_LEVELS[4] // Only slowest when very close
     }
 }
 #[inline]

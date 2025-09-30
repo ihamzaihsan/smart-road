@@ -3,7 +3,8 @@ use sdl2::rect::Rect;
 use sdl2::render::{Canvas, TextureCreator};
 use sdl2::video::{Window, WindowContext};
 
-use crate::components::Vehicle;
+use crate::components::path_vehicle::PathVehicle;
+use crate::components::{Vehicle, VehicleState};
 use crate::resources::{RoadConfig, VehicleAssets};
 
 pub struct Renderer<'a> {
@@ -87,7 +88,7 @@ impl<'a> Renderer<'a> {
 
         // Calculate intersection bounds (no dashes in center)
         let intersection_half = road_width / 2;
-        
+
         // Calculate separation line position for north direction lanes (which approach from the south)
         let separation_line_buffer = dash_length + dash_gap; // Buffer zone around separation lines
         let south_separation_y = center_y - intersection_half; // North-bound lanes approach this line
@@ -133,7 +134,7 @@ impl<'a> Renderer<'a> {
                 if (y - center_y).abs() > intersection_half {
                     // Skip dashes near south separation line (where north-bound lanes approach)
                     let near_south_line = (y - south_separation_y).abs() < separation_line_buffer;
-                    
+
                     if !near_south_line {
                         let dash_rect = Rect::new(x - 1, y, 2, dash_length as u32);
                         self.canvas
@@ -218,10 +219,17 @@ impl<'a> Renderer<'a> {
         let east_line_x = center_x - intersection_half;
         let east_line_start_y = center_y; // Start at center (after median)
         let east_line_end_y = center_y + (lanes_per_direction as i32 * lane_width);
-        
+
         for y in east_line_start_y..=east_line_end_y {
-            let line_rect = Rect::new(east_line_x - line_thickness / 2, y, line_thickness as u32, 1);
-            self.canvas.fill_rect(line_rect).map_err(|e| e.to_string())?;
+            let line_rect = Rect::new(
+                east_line_x - line_thickness / 2,
+                y,
+                line_thickness as u32,
+                1,
+            );
+            self.canvas
+                .fill_rect(line_rect)
+                .map_err(|e| e.to_string())?;
         }
 
         // West direction spawning lanes (coming from right, going left)
@@ -229,10 +237,17 @@ impl<'a> Renderer<'a> {
         let west_line_x = center_x + intersection_half;
         let west_line_start_y = center_y - (lanes_per_direction as i32 * lane_width);
         let west_line_end_y = center_y;
-        
+
         for y in west_line_start_y..=west_line_end_y {
-            let line_rect = Rect::new(west_line_x - line_thickness / 2, y, line_thickness as u32, 1);
-            self.canvas.fill_rect(line_rect).map_err(|e| e.to_string())?;
+            let line_rect = Rect::new(
+                west_line_x - line_thickness / 2,
+                y,
+                line_thickness as u32,
+                1,
+            );
+            self.canvas
+                .fill_rect(line_rect)
+                .map_err(|e| e.to_string())?;
         }
 
         // North direction spawning lanes (coming from bottom, going up)
@@ -240,10 +255,17 @@ impl<'a> Renderer<'a> {
         let north_line_y = center_y + intersection_half;
         let north_line_start_x = center_x; // Start at center (after median)
         let north_line_end_x = center_x + (lanes_per_direction as i32 * lane_width);
-        
+
         for x in north_line_start_x..=north_line_end_x {
-            let line_rect = Rect::new(x, north_line_y - line_thickness / 2, 1, line_thickness as u32);
-            self.canvas.fill_rect(line_rect).map_err(|e| e.to_string())?;
+            let line_rect = Rect::new(
+                x,
+                north_line_y - line_thickness / 2,
+                1,
+                line_thickness as u32,
+            );
+            self.canvas
+                .fill_rect(line_rect)
+                .map_err(|e| e.to_string())?;
         }
 
         // South direction spawning lanes (coming from top, going down)
@@ -251,10 +273,17 @@ impl<'a> Renderer<'a> {
         let south_line_y = center_y - intersection_half;
         let south_line_start_x = center_x - (lanes_per_direction as i32 * lane_width);
         let south_line_end_x = center_x;
-        
+
         for x in south_line_start_x..=south_line_end_x {
-            let line_rect = Rect::new(x, south_line_y - line_thickness / 2, 1, line_thickness as u32);
-            self.canvas.fill_rect(line_rect).map_err(|e| e.to_string())?;
+            let line_rect = Rect::new(
+                x,
+                south_line_y - line_thickness / 2,
+                1,
+                line_thickness as u32,
+            );
+            self.canvas
+                .fill_rect(line_rect)
+                .map_err(|e| e.to_string())?;
         }
 
         Ok(())
@@ -322,6 +351,274 @@ impl<'a> Renderer<'a> {
         for vehicle in vehicles {
             self.render_vehicle(vehicle, vehicle_assets, window_width, window_height)?;
         }
+
+        Ok(())
+    }
+
+    /// Render PathVehicle with enhanced visual feedback for priority system
+    pub fn render_path_vehicle(
+        &mut self,
+        vehicle: &PathVehicle,
+        vehicle_assets: &VehicleAssets,
+        window_width: u32,
+        window_height: u32,
+    ) -> Result<(), String> {
+        if vehicle.texture_index >= vehicle_assets.texture_count() {
+            return Ok(()); // Skip if texture index is invalid
+        }
+
+        let center_x = window_width as f32 / 2.0;
+        let center_y = window_height as f32 / 2.0;
+
+        // Convert world coordinates to screen coordinates
+        let screen_x = (center_x + vehicle.position.x) as i32;
+        let screen_y = (center_y - vehicle.position.y) as i32; // Flip Y axis
+
+        // Vehicle size (80x60 pixels as per existing configuration)
+        let vehicle_width = 80;
+        let vehicle_height = 60;
+
+        // Create destination rectangle
+        let dst_rect = Rect::new(
+            screen_x - vehicle_width / 2,
+            screen_y - vehicle_height / 2,
+            vehicle_width as u32,
+            vehicle_height as u32,
+        );
+
+        // Get the texture for this vehicle
+        if let Some(texture) = vehicle_assets.car_textures.get(vehicle.texture_index) {
+            // Calculate rotation angle in degrees
+            let angle_degrees = vehicle.rotation * 180.0 / std::f32::consts::PI;
+
+            // Render the rotated texture
+            self.canvas
+                .copy_ex(
+                    texture,
+                    None,
+                    dst_rect,
+                    angle_degrees as f64,
+                    None,
+                    false,
+                    false,
+                )
+                .map_err(|e| e.to_string())?;
+        }
+
+        // Add visual indicators based on vehicle state
+        self.render_vehicle_state_indicator(
+            vehicle,
+            screen_x,
+            screen_y,
+            vehicle_width,
+            vehicle_height,
+        )?;
+
+        Ok(())
+    }
+
+    /// Render PathVehicles with priority system visual feedback
+    pub fn render_path_vehicles(
+        &mut self,
+        vehicles: &[PathVehicle],
+        vehicle_assets: &VehicleAssets,
+    ) -> Result<(), String> {
+        let (window_width, window_height) = self.canvas.output_size().map_err(|e| e.to_string())?;
+
+        for vehicle in vehicles {
+            self.render_path_vehicle(vehicle, vehicle_assets, window_width, window_height)?;
+        }
+
+        Ok(())
+    }
+
+    /// Render visual indicators for vehicle state in priority system
+    fn render_vehicle_state_indicator(
+        &mut self,
+        vehicle: &PathVehicle,
+        screen_x: i32,
+        screen_y: i32,
+        _vehicle_width: i32,
+        vehicle_height: i32,
+    ) -> Result<(), String> {
+        match vehicle.state {
+            VehicleState::Waiting => {
+                // Red circle above waiting vehicles
+                self.canvas.set_draw_color(Color::RGB(255, 0, 0)); // Red
+                let indicator_radius = 8;
+                let indicator_y = screen_y - vehicle_height / 2 - 15; // Above vehicle
+
+                // Draw filled circle (simplified as rectangle for now)
+                let indicator_rect = Rect::new(
+                    screen_x - indicator_radius,
+                    indicator_y - indicator_radius,
+                    (indicator_radius * 2) as u32,
+                    (indicator_radius * 2) as u32,
+                );
+                self.canvas
+                    .fill_rect(indicator_rect)
+                    .map_err(|e| e.to_string())?;
+
+                // Add route priority text (R/S/L for Right/Straight/Left)
+                let priority_text = match vehicle.route {
+                    crate::components::Route::Right => "R",
+                    crate::components::Route::Straight => "S",
+                    crate::components::Route::Left => "L",
+                };
+
+                // Simple text representation using rectangles
+                self.canvas.set_draw_color(Color::RGB(255, 255, 255)); // White text
+                self.render_simple_text(priority_text, screen_x, indicator_y - 20)?;
+            }
+            VehicleState::Yielding => {
+                // Yellow triangle above yielding vehicles
+                self.canvas.set_draw_color(Color::RGB(255, 255, 0)); // Yellow
+                let indicator_y = screen_y - vehicle_height / 2 - 15;
+
+                // Draw triangle as a simple filled rectangle (triangle would require more complex drawing)
+                let indicator_rect = Rect::new(screen_x - 6, indicator_y - 6, 12, 12);
+                self.canvas
+                    .fill_rect(indicator_rect)
+                    .map_err(|e| e.to_string())?;
+            }
+            VehicleState::Stopped => {
+                // Red square above stopped vehicles
+                self.canvas.set_draw_color(Color::RGB(200, 0, 0)); // Dark red
+                let indicator_y = screen_y - vehicle_height / 2 - 15;
+
+                let indicator_rect = Rect::new(screen_x - 8, indicator_y - 8, 16, 16);
+                self.canvas
+                    .fill_rect(indicator_rect)
+                    .map_err(|e| e.to_string())?;
+            }
+            VehicleState::Moving => {
+                // Green dot above moving vehicles (optional, can be removed for cleaner view)
+                if vehicle.next_conflict_cell.is_some() {
+                    // Only show for vehicles approaching intersection
+                    self.canvas.set_draw_color(Color::RGB(0, 255, 0)); // Green
+                    let indicator_y = screen_y - vehicle_height / 2 - 15;
+
+                    let indicator_rect = Rect::new(screen_x - 4, indicator_y - 4, 8, 8);
+                    self.canvas
+                        .fill_rect(indicator_rect)
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Render simple text using rectangles (very basic implementation)
+    fn render_simple_text(&mut self, text: &str, x: i32, y: i32) -> Result<(), String> {
+        // Very simple character rendering using rectangles
+        match text {
+            "R" => {
+                // Draw a simple "R" shape
+                let rects = [
+                    Rect::new(x - 3, y - 5, 2, 10), // Vertical line
+                    Rect::new(x - 3, y - 5, 4, 2),  // Top horizontal
+                    Rect::new(x - 3, y - 1, 3, 2),  // Middle horizontal
+                    Rect::new(x + 1, y - 3, 2, 3),  // Top right vertical
+                    Rect::new(x - 1, y + 1, 3, 2),  // Diagonal (approximated)
+                ];
+                for rect in &rects {
+                    self.canvas.fill_rect(*rect).map_err(|e| e.to_string())?;
+                }
+            }
+            "S" => {
+                // Draw a simple "S" shape
+                let rects = [
+                    Rect::new(x - 3, y - 5, 6, 2), // Top horizontal
+                    Rect::new(x - 3, y - 5, 2, 3), // Top left vertical
+                    Rect::new(x - 2, y - 1, 4, 2), // Middle horizontal
+                    Rect::new(x + 1, y + 1, 2, 3), // Bottom right vertical
+                    Rect::new(x - 3, y + 3, 6, 2), // Bottom horizontal
+                ];
+                for rect in &rects {
+                    self.canvas.fill_rect(*rect).map_err(|e| e.to_string())?;
+                }
+            }
+            "L" => {
+                // Draw a simple "L" shape
+                let rects = [
+                    Rect::new(x - 3, y - 5, 2, 10), // Vertical line
+                    Rect::new(x - 3, y + 3, 6, 2),  // Bottom horizontal
+                ];
+                for rect in &rects {
+                    self.canvas.fill_rect(*rect).map_err(|e| e.to_string())?;
+                }
+            }
+            _ => {} // Ignore unknown characters
+        }
+        Ok(())
+    }
+
+    /// Render intersection queue waiting lines (visual guides)
+    pub fn render_intersection_waiting_lines(
+        &mut self,
+        road_config: &RoadConfig,
+    ) -> Result<(), String> {
+        let (window_width, window_height) = self.canvas.output_size().map_err(|e| e.to_string())?;
+        let center_x = window_width as i32 / 2;
+        let center_y = window_height as i32 / 2;
+
+        // Calculate road width and intersection bounds
+        let road_width = road_config.lane_width * road_config.num_lanes as f32 * 2.0;
+        let intersection_half = (road_width / 2.0) as i32;
+        let queue_distance = (road_width * 0.8) as i32; // Distance from center to waiting line
+
+        // Set color for waiting lines
+        self.canvas.set_draw_color(Color::RGB(255, 255, 0)); // Yellow waiting lines
+
+        // Draw waiting lines for each approach direction
+        // North approach (vehicles coming from south)
+        let north_waiting_y = center_y + queue_distance;
+        let north_line = Rect::new(
+            center_x - intersection_half,
+            north_waiting_y - 2,
+            (intersection_half * 2) as u32,
+            4,
+        );
+        self.canvas
+            .fill_rect(north_line)
+            .map_err(|e| e.to_string())?;
+
+        // South approach (vehicles coming from north)
+        let south_waiting_y = center_y - queue_distance;
+        let south_line = Rect::new(
+            center_x - intersection_half,
+            south_waiting_y - 2,
+            (intersection_half * 2) as u32,
+            4,
+        );
+        self.canvas
+            .fill_rect(south_line)
+            .map_err(|e| e.to_string())?;
+
+        // East approach (vehicles coming from west)
+        let east_waiting_x = center_x - queue_distance;
+        let east_line = Rect::new(
+            east_waiting_x - 2,
+            center_y - intersection_half,
+            4,
+            (intersection_half * 2) as u32,
+        );
+        self.canvas
+            .fill_rect(east_line)
+            .map_err(|e| e.to_string())?;
+
+        // West approach (vehicles coming from east)
+        let west_waiting_x = center_x + queue_distance;
+        let west_line = Rect::new(
+            west_waiting_x - 2,
+            center_y - intersection_half,
+            4,
+            (intersection_half * 2) as u32,
+        );
+        self.canvas
+            .fill_rect(west_line)
+            .map_err(|e| e.to_string())?;
 
         Ok(())
     }

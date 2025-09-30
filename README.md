@@ -41,10 +41,38 @@ cargo run --bin visual_sim
 
 The simulation will open a window showing the intersection. Use keyboard controls to spawn vehicles manually or toggle automatic spawning.
 
+## Priority-Based Intersection Management
+
+This project implements an advanced **priority-based intersection entry system** that prevents vehicular collisions through proactive traffic management:
+
+### Key Features
+- **🚦 Priority Queue System**: Vehicles wait at lane separators based on route priority
+- **🚗 Route Priorities**: Right turns (highest) → Straight → Left turns (lowest)  
+- **🛑 Collision Prevention**: Only one vehicle can access intersection at a time
+- **📊 Visual Feedback**: Color-coded indicators show vehicle states and priorities
+- **⚡ FIFO Processing**: Fair ordering within same priority levels
+
+### Priority System Benefits
+- **Zero Collisions**: Prevents conflicts by controlling intersection entry
+- **Optimized Flow**: Priority-based processing improves traffic efficiency  
+- **Safe Operations**: Robust queue management with deadlock prevention
+- **Visual Clarity**: Real-time status indicators for system monitoring
+
+### Testing the Priority System
+```bash
+# Run priority system demo
+cargo run --bin priority_demo
+
+# Run simple priority test
+cargo run --bin simple_priority_test
+```
+
 ## Project Structure
 
 - `src/bin/visual_sim.rs` - Main SDL2 application with game loop
+- `src/bin/priority_demo.rs` - Priority system demonstration
 - `src/components/` - Data structures (Vehicle, Direction, etc.)
+- `src/systems/` - Traffic management systems including priority control
 - `src/resources/` - Game resources (SpawnManager, RoadConfig, etc.)
 - `src/rendering/` - SDL2 rendering system for roads and vehicles
 - `src/input/` - SDL2 input handling system

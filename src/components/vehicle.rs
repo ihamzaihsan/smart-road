@@ -9,12 +9,14 @@ pub struct Vehicle {
     pub speed: f32,
     pub state: VehicleState,
     pub route: Route,
+    pub lane_index: usize,
     pub direction: Direction,
     pub target_speed: f32,
     pub rotation: f32,
     pub texture_index: usize,
     pub path: Vec<Vector2<f32>>,
     pub path_index: usize,
+    pub queue_target: Option<Vector2<f32>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
