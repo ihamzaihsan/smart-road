@@ -260,7 +260,18 @@ impl IntersectionEntrySystem {
                 let serving = queue.current_serving;
                 let needs_clear = if let Some(serving_id) = serving {
                     if let Some(vehicle) = vehicles.iter().find(|v| v.id == serving_id) {
-                        self.has_vehicle_cleared_intersection(vehicle)
+                        let cleared_intersection =
+                            self.has_vehicle_cleared_intersection(vehicle);
+                        let has_safe_gap = self
+                            .waiting_positions
+                            .get(&direction)
+                            .map(|waiting_pos| {
+                                (vehicle.position - *waiting_pos).magnitude()
+                                    >= self.queue_spacing_min
+                            })
+                            .unwrap_or(true);
+
+                        cleared_intersection && has_safe_gap
                     } else {
                         true // Vehicle no longer exists
                     }
@@ -286,17 +297,7 @@ impl IntersectionEntrySystem {
         // Try to serve next vehicle if needed
         if should_try_serve {
             let next_vehicle_info = {
-                if let Some(queue) = self.entry_queues.get_mut(&direction) {
-                    // Sort queue by priority and then by arrival time (FIFO within priority)
-                    queue.vehicles.make_contiguous().sort_by(|a, b| {
-                        // Higher priority first, then earlier arrival time
-                        b.priority_level.cmp(&a.priority_level).then(
-                            a.queue_entry_time
-                                .partial_cmp(&b.queue_entry_time)
-                                .unwrap_or(std::cmp::Ordering::Equal),
-                        )
-                    });
-
+                if let Some(queue) = self.entry_queues.get(&direction) {
                     queue.vehicles.front().cloned()
                 } else {
                     None
@@ -491,26 +492,30 @@ impl IntersectionEntrySystem {
                 0.0
             };
 
-            // Process ALL queued vehicles, regardless of their current state
-            // Force them into Waiting state with correct spacing
+            // Process ONLY vehicles that are still actively waiting in the queue
+            // DO NOT reset positions of vehicles that have been granted access and are moving
             for queued_vehicle in &queue.vehicles {
                 if let Some(vehicle) = vehicles
                     .iter_mut()
                     .find(|v| v.id == queued_vehicle.vehicle_id)
                 {
-                    // Calculate spacing for this vehicle
-                    let spacing = (vehicle.length + self.queue_spacing_buffer)
-                        .max(self.queue_spacing_min);
+                    // CRITICAL FIX: Only update position if vehicle is still waiting
+                    // If vehicle has been granted access (Moving state), let it continue moving
+                    if vehicle.state == VehicleState::Waiting {
+                        // Calculate spacing for this vehicle
+                        let spacing = (vehicle.length + self.queue_spacing_buffer)
+                            .max(self.queue_spacing_min);
 
-                    // Force vehicle into proper queue state and position
-                    vehicle.position = waiting_pos - approach_vector * offset;
-                    vehicle.speed = 0.0;
-                    vehicle.target_speed = 0.0;
-                    // Force state to Waiting - prevents collision system from interfering
-                    vehicle.state = VehicleState::Waiting;
-
-                    // Accumulate offset for next vehicle in queue
-                    offset += spacing;
+                        // Update vehicle to proper queue state and position
+                        vehicle.position = waiting_pos - approach_vector * offset;
+                        vehicle.speed = 0.0;
+                        vehicle.target_speed = 0.0;
+                        
+                        // Accumulate offset for next vehicle in queue
+                        offset += spacing;
+                    }
+                    // If vehicle.state != Waiting, it means it has been granted access
+                    // and is currently moving - do NOT interfere with its position
                 }
             }
         }

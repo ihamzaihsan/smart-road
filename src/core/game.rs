@@ -14,6 +14,16 @@ use sdl2::keyboard::Keycode;
 use sdl2::render::TextureCreator;
 use sdl2::video::WindowContext;
 use std::time::{Duration, Instant};
+
+#[derive(Clone, Copy)]
+struct ActiveIntersectionUser {
+    id: u64,
+    direction: Direction,
+    route: Route,
+    granted_at: f32,
+    has_entered_core: bool,
+}
+
 pub struct Game<'a> {
     pub vehicles: Vec<Vehicle>,
     pub spawn_manager: SpawnManager,
@@ -28,8 +38,8 @@ pub struct Game<'a> {
     last_auto_spawn_at: Instant,
     min_auto_spawn_gap: Duration,
     last_lane_used: std::collections::HashMap<Direction, usize>,
-    // Priority system tracking - now supports multiple simultaneous users
-    current_intersection_users: Vec<(u64, Direction, Route)>, // ID, direction, and route of vehicles using intersection
+    // Priority system tracking with per-vehicle lifecycle data
+    current_intersection_users: Vec<ActiveIntersectionUser>,
     // Track last time each route was granted access to prevent same-route collisions
     last_route_access: std::collections::HashMap<(Direction, Route), Instant>,
 }
@@ -66,7 +76,6 @@ impl<'a> Game<'a> {
     pub fn update(&mut self, events: &[Event]) -> bool {
         let current_time = Instant::now();
         let delta_time = current_time.duration_since(self.last_update).as_secs_f32();
-        self.last_update = current_time;
         self.input_system.update(events);
         for event in events {
             if let Event::Quit { .. } = event {
@@ -78,7 +87,9 @@ impl<'a> Game<'a> {
         if self.auto_spawn_timer.enabled {
             self.handle_automatic_spawning(current_time);
         }
-        self.update_vehicles(delta_time);
+        let elapsed_seconds = current_time.duration_since(self.start_time).as_secs_f32();
+        self.update_vehicles(delta_time, elapsed_seconds);
+        self.last_update = current_time;
         self.cleanup_vehicles();
         true
     }
@@ -398,11 +409,7 @@ impl<'a> Game<'a> {
             Direction::West => Vector2::new(-distance, lane_center),
         }
     }
-    fn update_vehicles(&mut self, delta_time: f32) {
-        let current_time = self
-            .last_update
-            .duration_since(self.start_time)
-            .as_secs_f32();
+    fn update_vehicles(&mut self, delta_time: f32, current_time: f32) {
         let road_half_width: f32 = self.road_config.lane_width * self.road_config.num_lanes as f32;
         
         // First pass: ensure all Moving vehicles have reasonable target speeds
@@ -482,8 +489,8 @@ impl<'a> Game<'a> {
                 }
             }
         }
-        // Priority-based intersection control
-        self.apply_priority_based_intersection_control(delta_time);
+    // Priority-based intersection control
+    self.apply_priority_based_intersection_control(delta_time, current_time);
 
         for v in &mut self.vehicles {
             if v.state != VehicleState::Moving {
@@ -684,24 +691,37 @@ impl<'a> Game<'a> {
     }
 
     /// Apply priority-based intersection control
-    fn apply_priority_based_intersection_control(&mut self, delta_time: f32) {
+    fn apply_priority_based_intersection_control(&mut self, delta_time: f32, current_time: f32) {
         let intersection_center = Vector2::new(0.0, 0.0);
         let intersection_half = self.road_config.lane_width * self.road_config.num_lanes as f32;
-        // Increase max_queue_distance to accommodate larger queue_spacing of 120
-        let max_queue_distance = intersection_half * 3.5; // Increased to fit proper spacing + buffer
+        let max_queue_distance = intersection_half * 3.5;
         let min_queue_distance = intersection_half * 0.6;
         let approach_distance = self
             .simulation_config
             .detection_distance
             .clamp(min_queue_distance, max_queue_distance);
-        let intersection_radius = intersection_half * 0.55; // Core intersection area
+        let intersection_radius = intersection_half * 0.55;
+        let exit_release_radius = intersection_half * 2.0;
+        let max_hold_time = 8.0;
 
-        // Clear vehicles that have exited the core area from active users list
-        self.current_intersection_users.retain(|(user_id, _, _)| {
-            self.vehicles.iter().any(|v| {
-                v.id == *user_id
-                    && (v.position - intersection_center).magnitude() < intersection_radius
-            })
+        for user in &mut self.current_intersection_users {
+            if let Some(vehicle) = self.vehicles.iter().find(|v| v.id == user.id) {
+                let distance_to_center = (vehicle.position - intersection_center).magnitude();
+                if !user.has_entered_core && distance_to_center <= intersection_radius {
+                    user.has_entered_core = true;
+                }
+            }
+        }
+
+        self.current_intersection_users.retain(|user| {
+            if let Some(vehicle) = self.vehicles.iter().find(|v| v.id == user.id) {
+                let distance_to_center = (vehicle.position - intersection_center).magnitude();
+                let cleared_core = user.has_entered_core && distance_to_center > exit_release_radius;
+                let timed_out = current_time - user.granted_at > max_hold_time;
+                !(cleared_core || timed_out)
+            } else {
+                false
+            }
         });
 
         struct Candidate {
@@ -720,7 +740,11 @@ impl<'a> Game<'a> {
             let vehicle = &self.vehicles[i];
 
             // Skip if already using intersection
-            if self.current_intersection_users.iter().any(|(id, _, _)| *id == vehicle.id) {
+            if self
+                .current_intersection_users
+                .iter()
+                .any(|user| user.id == vehicle.id)
+            {
                 continue;
             }
 
@@ -765,9 +789,10 @@ impl<'a> Game<'a> {
         });
 
         let mut waiting_candidate_indices: Vec<usize> = Vec::new();
-        
-        // Pre-compute moving vehicle positions to avoid borrow issues
-        let moving_vehicles: Vec<(u64, Direction, Route, Vector2<f32>)> = self.vehicles.iter()
+
+        let moving_vehicles: Vec<(u64, Direction, Route, Vector2<f32>)> = self
+            .vehicles
+            .iter()
             .filter(|v| v.state == VehicleState::Moving)
             .map(|v| (v.id, v.direction, v.route, v.position))
             .collect();
@@ -779,44 +804,46 @@ impl<'a> Game<'a> {
             let vehicle_route = vehicle.route;
             let vehicle_position = vehicle.position;
             let vehicle_movement_vector = vehicle.direction.movement_vector();
-            
-            // Skip if already using intersection
-            if self.current_intersection_users.iter().any(|(id, _, _)| *id == vehicle_id) {
+
+            if self
+                .current_intersection_users
+                .iter()
+                .any(|user| user.id == vehicle_id)
+            {
                 continue;
             }
 
-            // Check if this vehicle conflicts with any currently active vehicles
-            let has_conflict = self.current_intersection_users.iter().any(|(_, active_dir, active_route)| {
-                Self::routes_conflict(vehicle_direction, vehicle_route, *active_dir, *active_route)
-            });
-            
-            // Check if there's a same-route vehicle too close ahead (prevent same-route collisions)
-            // This creates a "safe zone" - don't release next vehicle until previous one is far enough
-            let min_safe_distance = 500.0; // Safe distance with reduced speed variation (5 levels: 200-40)
-            let has_same_route_nearby = moving_vehicles.iter().any(|(other_id, other_dir, other_route, other_pos)| {
-                if *other_id == vehicle_id {
-                    return false;
-                }
-                // Check if same direction and route
-                if *other_dir == vehicle_direction && *other_route == vehicle_route {
-                    let distance = (vehicle_position - other_pos).magnitude();
-                    if distance < min_safe_distance {
-                        // Check if other vehicle is ahead in the direction of travel
-                        let to_other = other_pos - vehicle_position;
-                        let direction_dot = vehicle_movement_vector.dot(&to_other.normalize());
-                        return direction_dot > 0.3; // Vehicle is ahead
-                    }
-                }
-                false
+            let has_conflict = self.current_intersection_users.iter().any(|active| {
+                Self::routes_conflict(
+                    vehicle_direction,
+                    vehicle_route,
+                    active.direction,
+                    active.route,
+                )
             });
 
-            // Grant access logic:
-            // - If intersection empty: grant to first vehicle (highest priority)
-            // - If intersection has users: grant to any non-conflicting vehicle
-            // - Don't grant if same-route vehicle is within safe zone ahead
+            let min_safe_distance = 500.0;
+            let has_same_route_nearby = moving_vehicles.iter().any(
+                |(other_id, other_dir, other_route, other_pos)| {
+                    if *other_id == vehicle_id {
+                        return false;
+                    }
+                    if *other_dir == vehicle_direction && *other_route == vehicle_route {
+                        let distance = (vehicle_position - other_pos).magnitude();
+                        if distance < min_safe_distance {
+                            let to_other = other_pos - vehicle_position;
+                            let direction_dot =
+                                vehicle_movement_vector.dot(&to_other.normalize());
+                            return direction_dot > 0.3;
+                        }
+                    }
+                    false
+                },
+            );
+
             let is_intersection_empty = self.current_intersection_users.is_empty();
             let is_highest_priority_waiting = order == 0;
-            
+
             let should_grant_access = if is_intersection_empty {
                 is_highest_priority_waiting && !has_same_route_nearby
             } else {
@@ -826,13 +853,26 @@ impl<'a> Game<'a> {
             if should_grant_access {
                 vehicle.state = VehicleState::Moving;
                 vehicle.queue_target = None;
-                vehicle.target_speed = SPEED_LEVELS[0]; // Set to maximum speed (200 units/sec)
-                vehicle.speed = SPEED_LEVELS[3]; // Start slower (80 units/sec) for better control
-                self.current_intersection_users.push((vehicle.id, vehicle.direction, vehicle.route));
+                vehicle.target_speed = SPEED_LEVELS[0];
+                vehicle.speed = SPEED_LEVELS[3];
+
+                if !self
+                    .current_intersection_users
+                    .iter()
+                    .any(|user| user.id == vehicle.id)
+                {
+                    self.current_intersection_users.push(ActiveIntersectionUser {
+                        id: vehicle.id,
+                        direction: vehicle.direction,
+                        route: vehicle.route,
+                        granted_at: current_time,
+                        has_entered_core: false,
+                    });
+                }
             } else {
                 vehicle.state = VehicleState::Waiting;
                 vehicle.target_speed = 0.0;
-                vehicle.speed = 0.0; // Ensure waiting vehicles are stopped
+                vehicle.speed = 0.0;
                 waiting_candidate_indices.push(order);
             }
         }
@@ -849,9 +889,8 @@ impl<'a> Game<'a> {
                 .push((candidate.index, candidate.distance_along));
         }
 
-        let head_gap = 30.0; // Distance from entry boundary - balanced for visibility and safety
-        // Reduced spacing to fit more cars in queue
-        let queue_spacing = 70.0;  // Reduced from 120 to fit more vehicles
+        let head_gap = 30.0;
+        let queue_spacing = 70.0;
 
         for ((direction, lane_index), mut entries) in lane_waiters {
             entries.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -882,7 +921,7 @@ impl<'a> Game<'a> {
                 if target_distance > approach_distance {
                     continue;
                 }
-                
+
                 assigned_targets.push((*vehicle_idx, target_position, direction));
             }
         }
@@ -891,8 +930,7 @@ impl<'a> Game<'a> {
             if let Some(vehicle) = self.vehicles.get_mut(idx) {
                 vehicle.queue_target = Some(target);
                 vehicle.rotation = direction.rotation_angle();
-                vehicle.speed = 0.0; // Stop immediately when in queue
-                // Don't teleport - let update_waiting_vehicle_positions handle smooth movement
+                vehicle.speed = 0.0;
             }
         }
 
@@ -906,7 +944,9 @@ impl<'a> Game<'a> {
         let mut movements: Vec<(usize, Vector2<f32>, f32)> = Vec::new();
         
         for (idx, vehicle) in self.vehicles.iter().enumerate() {
-            if vehicle.state == VehicleState::Waiting {
+            // CRITICAL FIX: Only process vehicles that are still actively waiting
+            // If a vehicle has been granted access and is Moving, do NOT interfere with its position
+            if vehicle.state == VehicleState::Waiting && vehicle.queue_target.is_some() {
                 if let Some(target) = vehicle.queue_target {
                     let to_target = target - vehicle.position;
                     let distance = to_target.magnitude();
@@ -945,20 +985,26 @@ impl<'a> Game<'a> {
                     }
                 }
             }
+            // If vehicle.state != Waiting, it means it has been granted access
+            // and is currently moving - do NOT interfere with its position
         }
         
         // Second pass: apply movements
         for (idx, direction_vec, step) in movements {
             if let Some(vehicle) = self.vehicles.get_mut(idx) {
-                vehicle.position += direction_vec * step;
-                vehicle.speed = 0.0;
-                
-                // Snap to target if very close
-                if let Some(target) = vehicle.queue_target {
-                    if (target - vehicle.position).magnitude() < 0.5 {
-                        vehicle.position = target;
+                // SAFETY CHECK: Only apply queue movement to vehicles still in Waiting state
+                if vehicle.state == VehicleState::Waiting {
+                    vehicle.position += direction_vec * step;
+                    vehicle.speed = 0.0;
+                    
+                    // Snap to target if very close
+                    if let Some(target) = vehicle.queue_target {
+                        if (target - vehicle.position).magnitude() < 0.5 {
+                            vehicle.position = target;
+                        }
                     }
                 }
+                // If vehicle state changed to Moving during this frame, do NOT apply queue movement
             }
         }
         
