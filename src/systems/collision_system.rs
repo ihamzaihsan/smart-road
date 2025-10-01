@@ -164,6 +164,14 @@ impl EnhancedCollisionSystem {
         for &(i, j) in conflicts {
             let (vehicle_a, vehicle_b) = (&vehicles[i], &vehicles[j]);
 
+            // Don't override vehicles that are in the queue (Waiting state)
+            // The entry system manages their state
+            if vehicle_a.state == crate::components::VehicleState::Waiting
+                || vehicle_b.state == crate::components::VehicleState::Waiting
+            {
+                continue;
+            }
+
             // Calculate ETAs to conflict
             let eta_a = vehicle_a.target_eta.unwrap_or(0.0);
             let eta_b = vehicle_b.target_eta.unwrap_or(0.0);
@@ -199,6 +207,8 @@ impl EnhancedCollisionSystem {
                 let vehicle_a = &vehicles[i];
                 let vehicle_b = &vehicles[j];
 
+                // ALWAYS detect collisions, even with waiting vehicles
+                // (rear-end collisions in queue are real accidents!)
                 if CapsuleCollision::check_intersection_collision(
                     vehicle_a,
                     vehicle_b,

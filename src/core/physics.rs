@@ -5,8 +5,8 @@ pub const MIN_SAFETY_DISTANCE: f32 = 75.0;
 pub const MAX_ACCELERATION: f32 = 400.0;
 pub const MAX_DECELERATION: f32 = 2000.0;
 pub const EMERGENCY_DECELERATION: f32 = 3000.0;
-pub const SPEED_LEVELS: [f32; 12] = [
-    400.0, 270.0, 240.0, 210.0, 180.0, 150.0, 120.0, 100.0, 80.0, 60.0, 40.0, 20.0,
+pub const SPEED_LEVELS: [f32; 5] = [
+    200.0, 160.0, 120.0, 80.0, 40.0,
 ];
 pub const TIME_HEADWAY: f32 = 2.0;
 pub const MIN_BUFFER_DISTANCE: f32 = 120.0;
@@ -90,18 +90,16 @@ pub fn speed_tier_from_distance(dist: f32, road_half_width: f32) -> f32 {
 }
 #[inline]
 pub fn eta_cap_from_gap(delta_t: f32) -> f32 {
-    if delta_t < 0.3 {
-        SPEED_LEVELS[11]
-    } else if delta_t < 0.6 {
-        SPEED_LEVELS[10]
+    if delta_t < 0.5 {
+        SPEED_LEVELS[4] // Slowest (40 units/sec)
     } else if delta_t < 1.0 {
-        SPEED_LEVELS[8]
+        SPEED_LEVELS[3] // Slow (80 units/sec)
     } else if delta_t < 1.5 {
-        SPEED_LEVELS[6]
+        SPEED_LEVELS[2] // Medium (120 units/sec)
     } else if delta_t < 2.0 {
-        SPEED_LEVELS[4]
+        SPEED_LEVELS[1] // Fast (160 units/sec)
     } else {
-        SPEED_LEVELS[2]
+        SPEED_LEVELS[0] // Fastest (200 units/sec)
     }
 }
 pub struct VehiclePhysics;
@@ -221,18 +219,18 @@ impl VehiclePhysics {
         }
     }
     fn get_max_acceleration(speed: f32) -> f32 {
-        if speed < SPEED_LEVELS[6] {
+        if speed < SPEED_LEVELS[3] {
             MAX_ACCELERATION
-        } else if speed < SPEED_LEVELS[3] {
+        } else if speed < SPEED_LEVELS[1] {
             MAX_ACCELERATION * 0.8
         } else {
             MAX_ACCELERATION * 0.6
         }
     }
     fn get_max_deceleration(speed: f32) -> f32 {
-        if speed > SPEED_LEVELS[2] {
+        if speed > SPEED_LEVELS[1] {
             MAX_DECELERATION * 1.8
-        } else if speed > SPEED_LEVELS[5] {
+        } else if speed > SPEED_LEVELS[2] {
             MAX_DECELERATION * 1.4
         } else {
             MAX_DECELERATION

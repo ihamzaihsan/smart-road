@@ -111,9 +111,9 @@ impl IntersectionEntrySystem {
             current_time: 0.0,
             max_wait_time: 10.0, // 10 seconds max wait time
             queue_start_distance: queue_distance,
-            queue_spacing_min: 90.0,
-            queue_spacing_buffer: 20.0,
-            serving_clearance_distance: 70.0,
+            queue_spacing_min: 140.0,        // Increased from 90.0 for better spacing
+            queue_spacing_buffer: 40.0,      // Increased from 20.0 for safety margin
+            serving_clearance_distance: 120.0, // Increased from 70.0 to give more space
         }
     }
 
@@ -211,11 +211,38 @@ impl IntersectionEntrySystem {
             waiting_position,
         };
 
-        // Add to queue and set vehicle state
+        // Get approach vector before borrowing queue mutably
+        let approach_vector = self.get_approach_vector(vehicle.approach);
+        
+        // Calculate the position for this vehicle BEFORE adding to queue
+        // This ensures the vehicle immediately goes to the correct position
+        let (queue_length, has_serving) = if let Some(queue) = self.entry_queues.get(&vehicle.approach) {
+            (queue.vehicles.len(), queue.current_serving.is_some())
+        } else {
+            return; // No queue for this direction
+        };
+        
+        // Calculate offset based on existing queue
+        let mut offset = if has_serving {
+            // If there's a serving vehicle blocking the line, add extra offset
+            self.queue_spacing_min
+        } else {
+            0.0
+        };
+        
+        // Add offset for all existing vehicles in queue
+        offset += (queue_length as f32) * self.queue_spacing_min;
+        
+        // Set vehicle position IMMEDIATELY to prevent collision while approaching
+        // Use same formula as update_queued_vehicle_positions for consistency
+        vehicle.position = waiting_position - approach_vector * offset;
+        vehicle.speed = 0.0;
+        vehicle.target_speed = 0.0;
+        vehicle.state = VehicleState::Waiting;
+        
+        // Now add to queue
         if let Some(queue) = self.entry_queues.get_mut(&vehicle.approach) {
             queue.vehicles.push_back(queued_vehicle);
-            vehicle.state = VehicleState::Waiting;
-            vehicle.target_speed = 0.0; // Stop the vehicle
         }
     }
 
@@ -464,21 +491,26 @@ impl IntersectionEntrySystem {
                 0.0
             };
 
+            // Process ALL queued vehicles, regardless of their current state
+            // Force them into Waiting state with correct spacing
             for queued_vehicle in &queue.vehicles {
                 if let Some(vehicle) = vehicles
                     .iter_mut()
                     .find(|v| v.id == queued_vehicle.vehicle_id)
                 {
-                    if vehicle.state == VehicleState::Waiting {
-                        let spacing = (vehicle.length + self.queue_spacing_buffer)
-                            .max(self.queue_spacing_min);
+                    // Calculate spacing for this vehicle
+                    let spacing = (vehicle.length + self.queue_spacing_buffer)
+                        .max(self.queue_spacing_min);
 
-                        vehicle.position = waiting_pos - approach_vector * offset;
-                        vehicle.speed = 0.0;
-                        vehicle.target_speed = 0.0;
+                    // Force vehicle into proper queue state and position
+                    vehicle.position = waiting_pos - approach_vector * offset;
+                    vehicle.speed = 0.0;
+                    vehicle.target_speed = 0.0;
+                    // Force state to Waiting - prevents collision system from interfering
+                    vehicle.state = VehicleState::Waiting;
 
-                        offset += spacing;
-                    }
+                    // Accumulate offset for next vehicle in queue
+                    offset += spacing;
                 }
             }
         }

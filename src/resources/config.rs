@@ -33,7 +33,7 @@ impl Default for SimulationConfig {
             spawn_cooldown: 3.0,
             cleanup_distance: 650.0, // Larger than spawn distances
             intersection_size: 300.0,
-            detection_distance: 200.0,
+            detection_distance: 550.0, // Increased to accommodate queue_spacing of 120
         }
     }
 }
