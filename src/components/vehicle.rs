@@ -32,6 +32,7 @@ pub enum VehicleState {
     Moving,
     Stopped,
     Yielding, // Added for conflict resolution
+    AlwaysMoving, // For right-turn vehicles that don't create intersection conflicts
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

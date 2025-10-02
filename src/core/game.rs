@@ -1,6 +1,6 @@
 use crate::components::{Direction, Route, Vehicle, VehicleState};
 use crate::core::physics::{
-    eta_cap_from_gap, quantize_with_hysteresis, speed_tier_from_distance, ConflictCalendar,
+    quantize_with_hysteresis, speed_tier_from_distance, ConflictCalendar,
     VehiclePhysics, SPEED_LEVELS,
 };
 use crate::input::InputSystem;
@@ -73,6 +73,18 @@ impl<'a> Game<'a> {
             last_route_access: std::collections::HashMap::new(),
         })
     }
+
+    // Helper function to check if path crosses intersection core
+    fn has_intersection_point(
+        path: &[Vector2<f32>],
+        intersection_center: Vector2<f32>,
+        radius: f32,
+    ) -> bool {
+        path.iter().any(|point| {
+            (point - intersection_center).magnitude() < radius
+        })
+    }
+
     pub fn update(&mut self, events: &[Event]) -> bool {
         let current_time = Instant::now();
         let delta_time = current_time.duration_since(self.last_update).as_secs_f32();
@@ -246,23 +258,35 @@ impl<'a> Game<'a> {
         let texture_index = self.vehicle_assets.get_random_texture_index();
         let rotation = direction.rotation_angle();
         let path = self.generate_waypoints(direction, lane_index, route, position);
+        
+        // FIXED SPEED OPTIMIZATION: All vehicles use AlwaysMoving with fixed speed
+        // Right-turn: 160 units/sec (bypass intersection completely)
+        // Straight/Left: 160 units/sec (controlled by priority queue - stop/go only)
+        
+        // ALL vehicles start with fixed speed (160 units/sec)
+        // Acceleration is the problem - use direct speed control instead
+        let initial_state = VehicleState::AlwaysMoving;
+        let initial_speed = SPEED_LEVELS[2] as f32;  // 160 units/sec
+        let initial_target_speed = SPEED_LEVELS[2] as f32;
+        
         let vehicle = Vehicle {
             id: vehicle_id,
             position,
             width: 2.0,
             length: 4.0,
-            speed: 0.0,
-            state: VehicleState::Moving,
+            speed: initial_speed,
+            state: initial_state,
             route,
             lane_index,
             direction,
-            target_speed: SPEED_LEVELS[0],
+            target_speed: initial_target_speed,
             rotation,
             texture_index,
             path,
             path_index: 1,
             queue_target: None,
         };
+        
         self.vehicles.push(vehicle);
     }
 
@@ -412,9 +436,21 @@ impl<'a> Game<'a> {
     fn update_vehicles(&mut self, delta_time: f32, current_time: f32) {
         let road_half_width: f32 = self.road_config.lane_width * self.road_config.num_lanes as f32;
         
-        // First pass: ensure all Moving vehicles have reasonable target speeds
+        // First pass: ensure all Moving/AlwaysMoving vehicles have reasonable target speeds
+        // EXCEPTION: AlwaysMoving vehicles (right-turn bypass) maintain FIXED speed - no changes!
         for v in self.vehicles.iter_mut() {
-            if v.state != VehicleState::Moving {
+            if v.state != VehicleState::Moving && v.state != VehicleState::AlwaysMoving {
+                continue;
+            }
+            
+            // CRITICAL: AlwaysMoving vehicles maintain fixed speed - skip all modifications
+            if v.state == VehicleState::AlwaysMoving {
+                continue;
+            }
+            
+            // Skip vehicles that just got permission and are still very slow (let collision avoidance handle them)
+            if v.speed < SPEED_LEVELS[4] * 1.5 {
+                // Vehicle just started moving or is in safety-critical situation
                 continue;
             }
             
@@ -436,59 +472,106 @@ impl<'a> Game<'a> {
             }
         }
         for i in 0..self.vehicles.len() {
-            let (left, right) = self.vehicles.split_at_mut(i + 1);
-            let current_vehicle = &mut left[i];
-            if current_vehicle.state != VehicleState::Moving {
+            let vehicle = &self.vehicles[i];
+            if vehicle.state != VehicleState::Moving && vehicle.state != VehicleState::AlwaysMoving {
                 continue;
             }
-            let (emergency_brake, safe_speed) =
-                VehiclePhysics::detect_collision_risk(current_vehicle, right);
-            if emergency_brake {
-                current_vehicle.target_speed = 0.0;
-                continue;
-            }
-            current_vehicle.target_speed = current_vehicle.target_speed.min(safe_speed);
             
-            // Enhanced rear-end collision avoidance
-            for other_vehicle in right.iter() {
-                if other_vehicle.state != VehicleState::Moving {
+            // CRITICAL OPTIMIZATION: AlwaysMoving vehicles (right-turn bypass) maintain FIXED speed
+            // Spawn cooldown ensures safe spacing, so skip collision avoidance modifications
+            if vehicle.state == VehicleState::AlwaysMoving {
+                continue;
+            }
+            
+            // CRITICAL: Check for ALL vehicles ahead (both Moving AND Waiting) with very large detection range
+            // Check ALL vehicles, not just ones after current index
+            let mut target_speed_for_vehicles_ahead = vehicle.target_speed;
+            
+            for j in 0..self.vehicles.len() {
+                if i == j {
                     continue;
                 }
+                let other_vehicle = &self.vehicles[j];
+                
+                // Check for ANY vehicle ahead (Moving or Waiting)
                 let in_same_lane = Self::are_vehicles_in_same_lane_static(
-                    current_vehicle,
+                    vehicle,
                     other_vehicle,
                     &self.road_config,
                 );
                 let is_following =
-                    Self::is_vehicle_following_static(current_vehicle, other_vehicle);
+                    Self::is_vehicle_following_static(vehicle, other_vehicle);
+                
+                let distance = (vehicle.position - other_vehicle.position).magnitude();
+                
                 if in_same_lane && is_following {
-                    let distance = (current_vehicle.position - other_vehicle.position).magnitude();
-                    let safe_distance =
-                        VehiclePhysics::calculate_safety_distance(current_vehicle.speed);
                     
-                    // More aggressive collision avoidance with larger detection range
-                    if distance < safe_distance * 4.0 {
-                        let safety_factor = (distance / safe_distance).clamp(0.05, 1.0);
+                    // VERY LARGE detection range to catch fast-moving vehicles early
+                    let max_detection = 800.0; // Increased from 700 for even earlier detection
+                    
+                    if distance < max_detection {
+                        // Calculate dynamic safety distances based on current speed
+                        let safe_distance = VehiclePhysics::calculate_safety_distance(vehicle.speed);
+                        let critical_distance = safe_distance * 0.5; // Very close
+                        let warning_distance = safe_distance * 1.0;  // Normal safety zone
+                        let caution_distance = safe_distance * 2.0;  // Early warning
+                        let approach_distance = safe_distance * 4.0; // Far approach
                         
-                        // Aggressive speed matching based on distance
-                        let safe_speed = if distance < safe_distance * 0.8 {
-                            // Very close - emergency slow down
-                            other_vehicle.speed * 0.4
-                        } else if distance < safe_distance * 1.5 {
-                            // Close - match speed closely
-                            other_vehicle.speed * 0.7
+                        // Dynamic speed calculation based on safety distance
+                        let base_target = if distance < critical_distance * 0.5 {
+                            // Emergency stop zone - imminent collision
+                            0.0
+                        } else if distance < critical_distance {
+                            // Critical zone - extremely slow
+                            SPEED_LEVELS[4] // 40
+                        } else if distance < warning_distance {
+                            // Danger zone - slow down significantly
+                            SPEED_LEVELS[3] // 80
+                        } else if distance < caution_distance {
+                            // Caution zone - moderate speed
+                            SPEED_LEVELS[2] // 120
+                        } else if distance < approach_distance {
+                            // Early warning - reduce speed slightly
+                            SPEED_LEVELS[1] // 160
                         } else {
-                            // Moderate distance - gradual speed adjustment
-                            other_vehicle.speed * safety_factor * 0.9
+                            // Approach zone - maintain high speed but monitor
+                            SPEED_LEVELS[0] * 0.9 // 180
                         };
                         
-                        current_vehicle.target_speed = current_vehicle
-                            .target_speed
-                            .min(safe_speed.max(SPEED_LEVELS[4])); // Allow very slow speeds (40 units/sec)
+                        // Special handling for stopped/waiting vehicles ahead
+                        let adjusted_target = if other_vehicle.state == VehicleState::Waiting || other_vehicle.speed < 10.0 {
+                            // For stopped vehicles, be more conservative
+                            base_target as f32
+                        } else {
+                            // For moving vehicles, match their speed with small margin
+                            (base_target as f32).min(other_vehicle.speed + 20.0)
+                        };
+                        
+                        target_speed_for_vehicles_ahead = target_speed_for_vehicles_ahead.min(adjusted_target);
+                        break; // Found a vehicle ahead, no need to check others
                     }
                 }
             }
+            
+            // Apply the speed reduction from vehicle-ahead check
+            self.vehicles[i].target_speed = target_speed_for_vehicles_ahead;
+            
+            // CRITICAL: If very close to ANY vehicle ahead, apply emergency brake directly to BOTH speed and target
+            // This bypasses the normal acceleration/deceleration system for immediate response
+            if target_speed_for_vehicles_ahead < SPEED_LEVELS[3] {
+                // Emergency/danger zone - force immediate speed cap
+                if self.vehicles[i].speed > target_speed_for_vehicles_ahead {
+                    self.vehicles[i].speed = target_speed_for_vehicles_ahead;
+                }
+            } else if target_speed_for_vehicles_ahead < SPEED_LEVELS[2] {
+                // Warning zone - gradually reduce if too fast
+                if self.vehicles[i].speed > target_speed_for_vehicles_ahead * 1.1 {
+                    self.vehicles[i].speed = target_speed_for_vehicles_ahead * 1.1;
+                }
+            }
         }
+    
+        
     // Priority-based intersection control
     self.apply_priority_based_intersection_control(delta_time, current_time);
 
@@ -496,6 +579,7 @@ impl<'a> Game<'a> {
             if v.state != VehicleState::Moving {
                 continue;
             }
+            
             let intersection_size = self.road_config.lane_width * self.road_config.num_lanes as f32;
             let mut min_capped_speed = v.target_speed;
             let mut conflict_found = false;
@@ -513,7 +597,17 @@ impl<'a> Game<'a> {
                     ) {
                         Ok(()) => {}
                         Err(gap) => {
-                            let capped_speed = eta_cap_from_gap(gap);
+                            // Simple speed cap based on time gap to conflict point
+                            // If gap is negative or very small, slow down significantly
+                            let capped_speed = if gap.abs() < 0.5 {
+                                SPEED_LEVELS[4] // Very slow (40)
+                            } else if gap.abs() < 1.0 {
+                                SPEED_LEVELS[3] // Slow (80)
+                            } else if gap.abs() < 2.0 {
+                                SPEED_LEVELS[2] // Moderate (120)
+                            } else {
+                                SPEED_LEVELS[1] // Normal (160)
+                            };
                             min_capped_speed = min_capped_speed.min(capped_speed);
                             conflict_found = true;
                         }
@@ -525,41 +619,25 @@ impl<'a> Game<'a> {
             }
         }
         // Safety check: identify vehicles that are stuck (Moving but very slow with no good reason)
-        let mut stuck_vehicle_ids: Vec<u64> = Vec::new();
-        for i in 0..self.vehicles.len() {
-            let v = &self.vehicles[i];
-            if v.state != VehicleState::Moving {
+        // DISABLED: This was causing vehicles to speed up even when they should be stopping for vehicles ahead
+        
+        // Apply physics
+        // EXCEPTION: AlwaysMoving vehicles maintain FIXED speed with no acceleration/deceleration
+        // BUT they still need to update their position!
+        for v in &mut self.vehicles {
+            if v.state == VehicleState::AlwaysMoving {
+                // AlwaysMoving vehicles (right-turn bypass) maintain constant speed
+                // Update position based on fixed speed, but skip acceleration/deceleration
+                VehiclePhysics::update_vehicle_position_only(v, delta_time);
                 continue;
             }
-            if v.target_speed < SPEED_LEVELS[3] && v.speed < SPEED_LEVELS[3] {
-                // Check if there's a real obstacle ahead
-                let has_close_obstacle = self.vehicles.iter().enumerate().any(|(j, other)| {
-                    if i == j || other.state != VehicleState::Moving {
-                        return false;
-                    }
-                    let distance = (v.position - other.position).magnitude();
-                    let to_other = other.position - v.position;
-                    let direction_dot = v.direction.movement_vector().dot(&to_other.normalize());
-                    distance < 20.0 && direction_dot > 0.7
-                });
-                
-                if !has_close_obstacle {
-                    stuck_vehicle_ids.push(v.id);
-                }
-            }
-        }
-        
-        // Apply physics and unstick vehicles
-        for v in &mut self.vehicles {
+            
             if v.state != VehicleState::Moving {
                 continue;
             }
             v.target_speed = quantize_with_hysteresis(v.speed, v.target_speed);
             
-            // Unstick vehicles that were identified as stuck
-            if stuck_vehicle_ids.contains(&v.id) {
-                v.target_speed = SPEED_LEVELS[3]; // 80 units/sec
-            }
+            // REMOVED: Unstick logic - it was causing vehicles to speed up when they should stop
             
             VehiclePhysics::update_vehicle_physics(v, delta_time);
         }
@@ -581,10 +659,10 @@ impl<'a> Game<'a> {
                 let distance = (v1.position - v2.position).magnitude();
                 
                 // Calculate minimum safe distance (considering both vehicles' sizes)
-                // Use half-length of each vehicle plus a small safety margin
+                // Use half-length of each vehicle plus a larger safety margin
                 let v1_half_length = v1.length / 2.0;
                 let v2_half_length = v2.length / 2.0;
-                let min_safe_distance = v1_half_length + v2_half_length + 2.0; // 2.0 is safety margin
+                let min_safe_distance = v1_half_length + v2_half_length + 5.0; // Increased from 2.0 to 5.0 for more safety
                 
                 if distance < min_safe_distance {
                     if !overlaps_found {
@@ -632,20 +710,25 @@ impl<'a> Game<'a> {
         if vehicle1.direction != vehicle2.direction {
             return false;
         }
-        let lane_tolerance = road_config.lane_width * 0.8;
-        match vehicle1.direction {
+        // Strict tolerance - must be within 70% of lane width (35 units for default 50)
+        // This prevents matching vehicles in adjacent lanes (50 units apart)
+        let lane_tolerance = road_config.lane_width * 0.70;
+        let perpendicular_distance = match vehicle1.direction {
             Direction::North | Direction::South => {
-                (vehicle1.position.x - vehicle2.position.x).abs() < lane_tolerance
+                (vehicle1.position.x - vehicle2.position.x).abs()
             }
             Direction::East | Direction::West => {
-                (vehicle1.position.y - vehicle2.position.y).abs() < lane_tolerance
+                (vehicle1.position.y - vehicle2.position.y).abs()
             }
-        }
+        };
+        
+        perpendicular_distance < lane_tolerance
     }
     fn is_vehicle_following_static(vehicle1: &Vehicle, vehicle2: &Vehicle) -> bool {
         let to_other = vehicle2.position - vehicle1.position;
         let movement_vector = vehicle1.direction.movement_vector();
-        to_other.dot(&movement_vector) > 0.0
+        let dot = to_other.dot(&movement_vector);
+        dot > 0.0
     }
 
     /// Check if two routes conflict in the intersection
@@ -739,6 +822,11 @@ impl<'a> Game<'a> {
         for i in 0..self.vehicles.len() {
             let vehicle = &self.vehicles[i];
 
+            // CRITICAL: Skip right-turn vehicles entirely - they use AlwaysMoving system
+            if vehicle.route == Route::Right {
+                continue;
+            }
+
             // Skip if already using intersection
             if self
                 .current_intersection_users
@@ -774,9 +862,11 @@ impl<'a> Game<'a> {
         // Release vehicles that were waiting but have moved away from the queue zone
         for idx in release_indices {
             if let Some(vehicle) = self.vehicles.get_mut(idx) {
-                vehicle.state = VehicleState::Moving;
+                // DIRECT SPEED: Resume at full speed immediately
+                vehicle.state = VehicleState::AlwaysMoving;
                 vehicle.queue_target = None;
-                vehicle.target_speed = vehicle.target_speed.max(SPEED_LEVELS[2]);
+                vehicle.target_speed = SPEED_LEVELS[2] as f32; // 160 units/sec
+                vehicle.speed = SPEED_LEVELS[2] as f32; // Direct speed, no acceleration
             }
         }
 
@@ -851,11 +941,12 @@ impl<'a> Game<'a> {
             };
 
             if should_grant_access {
-                vehicle.state = VehicleState::Moving;
+                // DIRECT SPEED: Grant access with immediate full speed (no acceleration)
+                vehicle.state = VehicleState::AlwaysMoving; // Use AlwaysMoving for direct speed control
                 vehicle.queue_target = None;
-                vehicle.target_speed = SPEED_LEVELS[0];
-                vehicle.speed = SPEED_LEVELS[3];
-
+                vehicle.target_speed = SPEED_LEVELS[2] as f32; // 160 units/sec
+                vehicle.speed = SPEED_LEVELS[2] as f32; // Set speed directly - no gradual acceleration
+                
                 if !self
                     .current_intersection_users
                     .iter()
@@ -870,9 +961,10 @@ impl<'a> Game<'a> {
                     });
                 }
             } else {
+                // DIRECT SPEED: Stop immediately (no deceleration)
                 vehicle.state = VehicleState::Waiting;
                 vehicle.target_speed = 0.0;
-                vehicle.speed = 0.0;
+                vehicle.speed = 0.0; // Direct stop
                 waiting_candidate_indices.push(order);
             }
         }
@@ -934,11 +1026,35 @@ impl<'a> Game<'a> {
             }
         }
 
+        // Right-turn optimization: vehicles turning right don't cross intersection core
+        // and can bypass the priority queue system with FIXED SPEED (no acceleration/deceleration)
+        let intersection_center = Vector2::new(0.0, 0.0); // Intersection is at origin
+        let intersection_radius = intersection_half / 1.5; // Core radius
+        
+        for vehicle in &mut self.vehicles {
+            // Only check vehicles that are waiting (not already moving or in intersection)
+            if vehicle.state != VehicleState::Waiting {
+                continue;
+            }
+            
+            // Check if this is a right turn that doesn't cross the intersection core
+            if vehicle.route == Route::Right 
+                && !Self::has_intersection_point(&vehicle.path, intersection_center, intersection_radius)
+            {
+                // FIXED SPEED STRATEGY: Right-turn vehicles maintain constant speed
+                // Spawn cooldown ensures safe spacing, no acceleration/deceleration needed
+                vehicle.state = VehicleState::AlwaysMoving;
+                vehicle.target_speed = SPEED_LEVELS[2]; // Fixed at 120 units/sec for smooth flow
+                vehicle.speed = SPEED_LEVELS[2]; // Set current speed immediately to fixed speed
+                vehicle.queue_target = None;
+            }
+        }
+
         self.update_waiting_vehicle_positions(delta_time);
     }
 
     fn update_waiting_vehicle_positions(&mut self, delta_time: f32) {
-        let approach_speed = SPEED_LEVELS[2]; // Moderate speed for queue movement (120 units/sec)
+        let approach_speed = SPEED_LEVELS[3]; // Slow speed for queue movement (80 units/sec) - reduced from 120
         
         // First pass: identify which vehicles need to move
         let mut movements: Vec<(usize, Vector2<f32>, f32)> = Vec::new();
@@ -952,20 +1068,35 @@ impl<'a> Game<'a> {
                     let distance = to_target.magnitude();
                     
                     if distance > 1.0 {
-                        // Check if there's a vehicle ahead blocking movement
+                        // ENHANCED CHECK: Look for ANY vehicle ahead (both Waiting AND Moving)
                         let mut can_move = true;
                         let direction_vec = to_target / distance;
                         
                         for other in &self.vehicles {
                             if other.id != vehicle.id {
+                                // Check if we're in the same direction and lane
+                                let same_direction = vehicle.direction == other.direction;
+                                if !same_direction {
+                                    continue;
+                                }
+                                
                                 let to_other = other.position - vehicle.position;
                                 let distance_to_other = to_other.magnitude();
                                 
                                 // Check if other vehicle is ahead in our direction of movement
-                                if distance_to_other < 50.0 { // Safety check range
+                                if distance_to_other < 100.0 { // Increased safety check range from 50
                                     let dot = to_other.normalize().dot(&direction_vec);
-                                    if dot > 0.8 { // Other vehicle is ahead
-                                        let min_safe = (vehicle.length + other.length) / 2.0 + 10.0;
+                                    if dot > 0.7 { // Other vehicle is ahead (relaxed from 0.8)
+                                        // CRITICAL: If the vehicle ahead is Moving (recently granted access),
+                                        // we need a MUCH larger safety distance
+                                        let min_safe = if other.state == VehicleState::Moving {
+                                            // Vehicle ahead is moving - give it more space (150 units)
+                                            150.0
+                                        } else {
+                                            // Both waiting - normal queue distance
+                                            (vehicle.length + other.length) / 2.0 + 15.0 // Increased margin
+                                        };
+                                        
                                         if distance_to_other < min_safe {
                                             can_move = false;
                                             break;
@@ -1025,14 +1156,7 @@ impl<'a> Game<'a> {
         }
     }
 
-    /// Check if a vehicle is near the intersection
-    fn is_near_intersection(&self, position: &Vector2<f32>) -> bool {
-        let intersection_size = self.road_config.lane_width * self.road_config.num_lanes as f32;
-        let approach_distance = intersection_size * 1.5; // Detection zone around intersection
-
-        // Check if vehicle is within approach distance of intersection center
-        position.magnitude() < approach_distance
-    }
+    // Removed: is_near_intersection - no longer used (dead code)
 
     pub fn render(&mut self, renderer: &mut Renderer) -> Result<(), String> {
         renderer.clear();

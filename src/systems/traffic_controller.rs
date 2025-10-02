@@ -223,6 +223,7 @@ impl TrafficController {
                 crate::components::VehicleState::Yielding => telemetry.yielding_vehicles += 1,
                 crate::components::VehicleState::Stopped => telemetry.stopped_vehicles += 1,
                 crate::components::VehicleState::Waiting => telemetry.waiting_vehicles += 1,
+                crate::components::VehicleState::AlwaysMoving => telemetry.moving_vehicles += 1, // Count as moving
             }
 
             if vehicle.next_conflict_cell.is_some() {

@@ -491,8 +491,9 @@ impl<'a> Renderer<'a> {
                     .fill_rect(indicator_rect)
                     .map_err(|e| e.to_string())?;
             }
-            VehicleState::Moving => {
+            VehicleState::Moving | VehicleState::AlwaysMoving => {
                 // Green dot above moving vehicles (optional, can be removed for cleaner view)
+                // AlwaysMoving vehicles (right-turn bypass) show same indicator as Moving
                 if vehicle.next_conflict_cell.is_some() {
                     // Only show for vehicles approaching intersection
                     self.canvas.set_draw_color(Color::RGB(0, 255, 0)); // Green
