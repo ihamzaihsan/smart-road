@@ -104,14 +104,13 @@ impl<'a> Game<'a> {
         let no_active_traffic =
             self.vehicles.is_empty() && self.current_intersection_users.is_empty();
 
-        if no_active_traffic {
-            if self.stats_manager.has_results() && !self.stats_ready {
-                self.stats_ready = true;
-            }
+        if no_active_traffic && self.stats_manager.has_results() && !self.stats_ready {
+            self.stats_ready = true;
+        }
 
-            if self.pending_exit {
-                return false;
-            }
+        // Allow immediate exit when requested
+        if self.pending_exit {
+            return false;
         }
 
         true
