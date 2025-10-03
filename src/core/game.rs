@@ -3,10 +3,11 @@ use crate::core::physics::ConflictCalendar;
 use crate::core::{intersection, spawning, vehicle_update, waypoints};
 use crate::input::InputSystem;
 use crate::rendering::Renderer;
-use crate::resources::{RoadConfig, SimulationConfig, VehicleAssets};
+use crate::resources::{RoadConfig, SimulationConfig, StatsManager, StatsSummary, VehicleAssets};
 use crate::systems::{AutoSpawnTimer, SpawnManager};
 use sdl2::event::Event;
 use sdl2::image::LoadTexture;
+use sdl2::keyboard::Keycode;
 use sdl2::render::TextureCreator;
 use sdl2::video::WindowContext;
 use std::time::{Duration, Instant};
@@ -26,6 +27,9 @@ pub struct Game<'a> {
     min_auto_spawn_gap: Duration,
     last_lane_used: std::collections::HashMap<Direction, usize>,
     current_intersection_users: Vec<intersection::ActiveIntersectionUser>,
+    stats_manager: StatsManager,
+    pending_exit: bool,
+    stats_ready: bool,
 }
 impl<'a> Game<'a> {
     pub fn new(texture_creator: &'a TextureCreator<WindowContext>) -> Result<Self, String> {
@@ -54,6 +58,9 @@ impl<'a> Game<'a> {
             min_auto_spawn_gap: Duration::from_secs_f32(0.8),
             last_lane_used: std::collections::HashMap::new(),
             current_intersection_users: Vec::new(),
+            stats_manager: StatsManager::new(),
+            pending_exit: false,
+            stats_ready: false,
         })
     }
 
@@ -63,11 +70,21 @@ impl<'a> Game<'a> {
 
         self.input_system.update(events);
 
-        // Check for quit events
+        let mut exit_requested = false;
         for event in events {
-            if let Event::Quit { .. } = event {
-                return false;
+            match event {
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => exit_requested = true,
+                _ => {}
             }
+        }
+
+        if exit_requested {
+            self.pending_exit = true;
+            self.auto_spawn_timer.enabled = false;
         }
 
         // Handle spawning
@@ -78,12 +95,33 @@ impl<'a> Game<'a> {
         self.update_all_vehicles(delta_time, elapsed_seconds);
 
         self.last_update = current_time;
-        self.cleanup_vehicles();
+        self.cleanup_vehicles(elapsed_seconds);
+
+        for vehicle in &self.vehicles {
+            self.stats_manager.observe_speed(vehicle.id, vehicle.speed);
+        }
+
+        let no_active_traffic =
+            self.vehicles.is_empty() && self.current_intersection_users.is_empty();
+
+        if no_active_traffic {
+            if self.stats_manager.has_results() && !self.stats_ready {
+                self.stats_ready = true;
+            }
+
+            if self.pending_exit {
+                return false;
+            }
+        }
 
         true
     }
 
     fn handle_spawning(&mut self, current_time: Instant) {
+        if self.pending_exit {
+            return;
+        }
+
         // Handle keyboard spawning
         if let Some((direction, lane_index, spawn_pos, route)) = spawning::handle_keyboard_spawning(
             &self.input_system,
@@ -112,6 +150,7 @@ impl<'a> Game<'a> {
                 &mut self.spawn_manager,
                 &self.vehicle_assets,
             );
+            self.stats_manager.observe_speed(vehicle.id, vehicle.speed);
             self.vehicles.push(vehicle);
         }
 
@@ -156,6 +195,7 @@ impl<'a> Game<'a> {
                     &mut self.spawn_manager,
                     &self.vehicle_assets,
                 );
+                self.stats_manager.observe_speed(vehicle.id, vehicle.speed);
                 self.vehicles.push(vehicle);
                 self.last_auto_spawn_at = current_time;
             }
@@ -171,6 +211,7 @@ impl<'a> Game<'a> {
             &self.spawn_manager,
             delta_time,
             current_time,
+            &mut self.stats_manager,
         );
 
         // Update vehicle physics and collision avoidance
@@ -180,11 +221,18 @@ impl<'a> Game<'a> {
             &self.road_config,
             delta_time,
             current_time,
+            &mut self.stats_manager,
         );
     }
 
-    fn cleanup_vehicles(&mut self) {
-        vehicle_update::cleanup_vehicles(&mut self.vehicles);
+    fn cleanup_vehicles(&mut self, current_time: f32) {
+        let exited = vehicle_update::cleanup_vehicles(
+            &mut self.vehicles,
+            self.simulation_config.cleanup_distance,
+        );
+        for id in exited {
+            self.stats_manager.record_vehicle_exit(id, current_time);
+        }
     }
 
     pub fn render(&mut self, renderer: &mut Renderer) -> Result<(), String> {
@@ -193,5 +241,16 @@ impl<'a> Game<'a> {
         renderer.render_vehicles(&self.vehicles, &self.vehicle_assets)?;
         renderer.present();
         Ok(())
+    }
+
+    pub fn take_stats_summary(&mut self) -> Option<StatsSummary> {
+        if self.stats_ready && self.stats_manager.has_results() {
+            self.stats_ready = false;
+            let summary = self.stats_manager.summary();
+            self.stats_manager.reset();
+            Some(summary)
+        } else {
+            None
+        }
     }
 }

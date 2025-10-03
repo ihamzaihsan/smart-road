@@ -1,7 +1,7 @@
 use crate::components::{Direction, Route, Vehicle, VehicleState};
 use crate::core::physics::SPEED_LEVELS;
 use crate::core::waypoints;
-use crate::resources::RoadConfig;
+use crate::resources::{RoadConfig, StatsManager};
 use crate::systems::SpawnManager;
 use nalgebra::Vector2;
 use std::collections::HashMap;
@@ -23,6 +23,7 @@ pub fn apply_priority_based_intersection_control(
     spawn_manager: &SpawnManager,
     delta_time: f32,
     current_time: f32,
+    stats_manager: &mut StatsManager,
 ) {
     let intersection_center = Vector2::new(0.0, 0.0);
     let intersection_half = road_config.lane_width * road_config.num_lanes as f32;
@@ -94,12 +95,6 @@ pub fn apply_priority_based_intersection_control(
     for i in 0..vehicles.len() {
         let vehicle = &vehicles[i];
 
-        // Skip right-turn vehicles - they use AlwaysMoving system
-        if vehicle.route == Route::Right {
-            continue;
-        }
-
-        // Skip if already using intersection
         if current_intersection_users
             .iter()
             .any(|user| user.id == vehicle.id)
@@ -112,17 +107,24 @@ pub fn apply_priority_based_intersection_control(
         let distance_along = relative_to_center.dot(&approach_vector);
         let inside_core =
             (vehicle.position - intersection_center).magnitude() < intersection_radius;
+        let approach_distance = direction_approach_distances
+            .get(&vehicle.direction)
+            .copied()
+            .unwrap_or(max_queue_distance);
+
+        if distance_along >= 0.0 && distance_along <= approach_distance {
+            stats_manager.record_detection(vehicle.id, current_time);
+        }
+
+        if vehicle.route == Route::Right {
+            continue;
+        }
 
         if inside_core {
             continue;
         }
 
         if distance_along >= 0.0 {
-            let approach_distance = direction_approach_distances
-                .get(&vehicle.direction)
-                .copied()
-                .unwrap_or(max_queue_distance);
-
             if distance_along <= approach_distance {
                 queue_candidates.push(Candidate {
                     index: i,

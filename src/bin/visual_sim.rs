@@ -3,6 +3,33 @@ use std::time::Duration;
 
 use smart_road::core::Game;
 use smart_road::rendering::Renderer;
+use smart_road::resources::StatsSummary;
+
+fn display_stats(summary: StatsSummary) {
+    let format_value = |value: Option<f32>| -> String {
+        value
+            .map(|v| format!("{:.2}", v))
+            .unwrap_or_else(|| "N/A".to_string())
+    };
+
+    let stats_message = format!(
+        "Simulation complete!\n\nTotal vehicles passed: {}\nMax speed: {}\nMin speed: {}\nLongest travel time: {} seconds\nShortest travel time: {} seconds\nClose calls: {}\nCollisions: {}",
+        summary.total_vehicles_passed,
+        format_value(summary.max_speed),
+        format_value(summary.min_speed),
+        format_value(summary.max_travel_time),
+        format_value(summary.min_travel_time),
+        summary.close_calls,
+        summary.collisions,
+    );
+
+    let _ = sdl2::messagebox::show_simple_message_box(
+        sdl2::messagebox::MessageBoxFlag::INFORMATION,
+        "Smart Intersection Statistics",
+        &stats_message,
+        None,
+    );
+}
 
 fn main() -> Result<(), String> {
     // Initialize SDL2
@@ -52,18 +79,8 @@ fn main() -> Result<(), String> {
             break 'running;
         }
 
-        // Check for ESC key to quit
-        for event in &events {
-            match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(sdl2::keyboard::Keycode::Escape),
-                    ..
-                } => {
-                    break 'running;
-                }
-                _ => {}
-            }
+        if let Some(summary) = game.take_stats_summary() {
+            display_stats(summary);
         }
 
         // Render
@@ -77,5 +94,10 @@ fn main() -> Result<(), String> {
     }
 
     println!("Smart Road Simulator shutting down...");
+
+    if let Some(summary) = game.take_stats_summary() {
+        display_stats(summary);
+    }
+
     Ok(())
 }

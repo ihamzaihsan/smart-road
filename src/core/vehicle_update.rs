@@ -3,7 +3,7 @@ use crate::core::physics::{
     quantize_with_hysteresis, speed_tier_from_distance, ConflictCalendar, VehiclePhysics,
     SPEED_LEVELS,
 };
-use crate::resources::RoadConfig;
+use crate::resources::{RoadConfig, StatsManager};
 
 /// Main vehicle update function
 pub fn update_vehicles(
@@ -12,6 +12,7 @@ pub fn update_vehicles(
     road_config: &RoadConfig,
     delta_time: f32,
     current_time: f32,
+    stats_manager: &mut StatsManager,
 ) {
     let road_half_width: f32 = road_config.lane_width * road_config.num_lanes as f32;
 
@@ -184,11 +185,11 @@ pub fn update_vehicles(
         VehiclePhysics::update_vehicle_physics(v, delta_time);
     }
 
-    check_vehicle_overlaps(vehicles);
+    check_vehicle_overlaps(vehicles, stats_manager);
 }
 
 /// Check if any vehicles have overlapping positions
-pub fn check_vehicle_overlaps(vehicles: &[Vehicle]) {
+pub fn check_vehicle_overlaps(vehicles: &[Vehicle], stats_manager: &mut StatsManager) {
     let mut overlaps_found = false;
 
     for i in 0..vehicles.len() {
@@ -201,6 +202,15 @@ pub fn check_vehicle_overlaps(vehicles: &[Vehicle]) {
             let v1_half_length = v1.length / 2.0;
             let v2_half_length = v2.length / 2.0;
             let min_safe_distance = v1_half_length + v2_half_length + 5.0;
+            let collision_threshold = v1_half_length + v2_half_length;
+
+            stats_manager.observe_distance(
+                v1.id,
+                v2.id,
+                distance,
+                collision_threshold,
+                min_safe_distance,
+            );
 
             if distance < min_safe_distance {
                 if !overlaps_found {
@@ -236,12 +246,19 @@ pub fn check_vehicle_overlaps(vehicles: &[Vehicle]) {
 }
 
 /// Remove vehicles that have exited the simulation area
-pub fn cleanup_vehicles(vehicles: &mut Vec<Vehicle>) {
-    let cleanup_distance = 650.0;
-    vehicles.retain(|vehicle| {
-        let distance_from_center = vehicle.position.magnitude();
-        distance_from_center <= cleanup_distance
-    });
+pub fn cleanup_vehicles(vehicles: &mut Vec<Vehicle>, cleanup_distance: f32) -> Vec<u64> {
+    let mut removed = Vec::new();
+    let mut index = 0;
+    while index < vehicles.len() {
+        let distance_from_center = vehicles[index].position.magnitude();
+        if distance_from_center > cleanup_distance {
+            removed.push(vehicles[index].id);
+            vehicles.remove(index);
+        } else {
+            index += 1;
+        }
+    }
+    removed
 }
 
 /// Check if two vehicles are in the same lane
