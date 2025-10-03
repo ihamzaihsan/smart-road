@@ -31,7 +31,7 @@ pub enum VehicleState {
     Waiting,
     Moving,
     Stopped,
-    Yielding, // Added for conflict resolution
+    Yielding,     // Added for conflict resolution
     AlwaysMoving, // For right-turn vehicles that don't create intersection conflicts
 }
 

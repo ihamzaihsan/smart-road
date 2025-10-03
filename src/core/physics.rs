@@ -2,12 +2,10 @@ use crate::components::{Direction, Vehicle};
 use nalgebra::Vector2;
 use std::collections::HashMap;
 pub const MIN_SAFETY_DISTANCE: f32 = 75.0;
-pub const MAX_ACCELERATION: f32 = 250.0; 
-pub const MAX_DECELERATION: f32 = 2500.0; 
-pub const EMERGENCY_DECELERATION: f32 = 4000.0; 
-pub const SPEED_LEVELS: [f32; 5] = [
-    300.0, 200.0, 160.0, 120.0, 80.0,
-];
+pub const MAX_ACCELERATION: f32 = 250.0;
+pub const MAX_DECELERATION: f32 = 2500.0;
+pub const EMERGENCY_DECELERATION: f32 = 4000.0;
+pub const SPEED_LEVELS: [f32; 5] = [300.0, 200.0, 160.0, 120.0, 80.0];
 pub const TIME_HEADWAY: f32 = 2.0;
 pub const MIN_BUFFER_DISTANCE: f32 = 120.0;
 pub const CRITICAL_DISTANCE: f32 = 60.0;
@@ -88,41 +86,13 @@ pub fn speed_tier_from_distance(dist: f32, road_half_width: f32) -> f32 {
         SPEED_LEVELS[4] // Only slowest when very close
     }
 }
-#[inline]
-pub fn eta_cap_from_gap(delta_t: f32, vehicle_a: &Vehicle, vehicle_b: &Vehicle) -> f32 {
-    let speed_a = vehicle_a.speed;
-    let speed_b = vehicle_b.speed;
-    let distance = (vehicle_a.position - vehicle_b.position).magnitude();
 
-    // Calculate the time it would take for vehicle_a to reach vehicle_b
-    let time_to_collision = if (speed_a + 1e-5) > 0.0 {
-        (distance - vehicle_a.width / 2.0) / (speed_a + 1e-5)
-    } else {
-        f32::INFINITY
-    };
-
-    // Use current speed for estimation since acceleration is not available
-    let speed_at_collision = speed_a;
-
-    // Determine the speed level based on the speed at the time of collision
-    if speed_at_collision < SPEED_LEVELS[4] {
-        SPEED_LEVELS[4] // Slowest (80 units/sec)
-    } else if speed_at_collision < SPEED_LEVELS[3] {
-        SPEED_LEVELS[3] // Slow (120 units/sec)
-    } else if speed_at_collision < SPEED_LEVELS[2] {
-        SPEED_LEVELS[2] // Medium (160 units/sec)
-    } else if speed_at_collision < SPEED_LEVELS[1] {
-        SPEED_LEVELS[1] // Fast (200 units/sec)
-    } else {
-        SPEED_LEVELS[0] // Fastest (300 units/sec)
-    }
-}
 pub struct VehiclePhysics;
 impl VehiclePhysics {
-  pub fn calculate_safety_distance(speed: f32) -> f32 {
-    let time_headway = TIME_HEADWAY * 1.2; 
-    (speed * time_headway + MIN_BUFFER_DISTANCE).max(MIN_SAFETY_DISTANCE) + 50.0 
-}
+    pub fn calculate_safety_distance(speed: f32) -> f32 {
+        let time_headway = TIME_HEADWAY * 1.2;
+        (speed * time_headway + MIN_BUFFER_DISTANCE).max(MIN_SAFETY_DISTANCE) + 50.0
+    }
 
     pub fn check_emergency_brake_needed(vehicle: &Vehicle, other: &Vehicle) -> bool {
         let distance = (vehicle.position - other.position).magnitude();
