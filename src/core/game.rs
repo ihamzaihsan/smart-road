@@ -101,12 +101,15 @@ impl<'a> Game<'a> {
             self.stats_manager.observe_speed(vehicle.id, vehicle.speed);
         }
 
+        let no_active_traffic =
+            self.vehicles.is_empty() && self.current_intersection_users.is_empty();
+
+        if no_active_traffic && self.stats_manager.has_results() && !self.stats_ready {
+            self.stats_ready = true;
+        }
+
         // Allow immediate exit when requested
         if self.pending_exit {
-            // Show stats only when user closes the program
-            if self.stats_manager.has_results() && !self.stats_ready {
-                self.stats_ready = true;
-            }
             return false;
         }
 

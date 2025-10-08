@@ -54,8 +54,8 @@ pub fn apply_priority_based_intersection_control(
     })
     .collect();
     let intersection_radius = intersection_half * 0.55;
-    let exit_release_radius = intersection_half * 1.5; // OPTIMIZED: Faster release (was 2.0)
-    let max_hold_time = 4.0; // OPTIMIZED: Reduced timeout for faster turnover (was 8.0)
+    let exit_release_radius = intersection_half * 2.0;
+    let max_hold_time = 8.0;
 
     // Update intersection core entry status
     for user in current_intersection_users.iter_mut() {
@@ -91,25 +91,14 @@ pub fn apply_priority_based_intersection_control(
     let mut release_indices: Vec<usize> = Vec::new();
     let mut assigned_targets: Vec<(usize, Vector2<f32>, Direction)> = Vec::new();
 
-    // OPTIMIZATION: Pre-allocate with expected capacity to reduce reallocation
-    queue_candidates.reserve(20); // Expect ~20 vehicles near intersection
-    release_indices.reserve(10);
-    assigned_targets.reserve(20);
-
     // Identify vehicles approaching intersection
     for i in 0..vehicles.len() {
         let vehicle = &vehicles[i];
 
-        // OPTIMIZATION: Skip vehicles already in intersection (early exit)
         if current_intersection_users
             .iter()
             .any(|user| user.id == vehicle.id)
         {
-            continue;
-        }
-
-        // OPTIMIZATION: Skip right-turn vehicles early (they bypass queue)
-        if vehicle.route == Route::Right {
             continue;
         }
 
@@ -123,12 +112,14 @@ pub fn apply_priority_based_intersection_control(
             .copied()
             .unwrap_or(max_queue_distance);
 
-        // OPTIMIZATION: Record detection for stats
         if distance_along >= 0.0 && distance_along <= approach_distance {
             stats_manager.record_detection(vehicle.id, current_time);
         }
 
-        // OPTIMIZATION: Skip vehicles inside intersection core
+        if vehicle.route == Route::Right {
+            continue;
+        }
+
         if inside_core {
             continue;
         }
@@ -138,7 +129,7 @@ pub fn apply_priority_based_intersection_control(
                 queue_candidates.push(Candidate {
                     index: i,
                     distance_along,
-                    priority: calculate_vehicle_priority(vehicle, current_time),
+                    priority: calculate_vehicle_priority(vehicle),
                     direction: vehicle.direction,
                     lane_index: vehicle.lane_index,
                 });
@@ -193,7 +184,6 @@ pub fn apply_priority_based_intersection_control(
             continue;
         }
 
-        // OPTIMIZATION: Allow multiple non-conflicting vehicles simultaneously
         let has_conflict = current_intersection_users.iter().any(|active| {
             routes_conflict(
                 vehicle_direction,
@@ -203,7 +193,7 @@ pub fn apply_priority_based_intersection_control(
             )
         });
 
-        let min_safe_distance = 300.0; 
+        let min_safe_distance = 500.0;
         let has_same_route_nearby =
             moving_vehicles
                 .iter()
@@ -225,13 +215,9 @@ pub fn apply_priority_based_intersection_control(
         let is_intersection_empty = current_intersection_users.is_empty();
         let is_highest_priority_waiting = order == 0;
 
-        // OPTIMIZATION: Allow multiple vehicles when intersection is empty
-        // Grant access to top 3 highest priority vehicles if no conflicts
         let should_grant_access = if is_intersection_empty {
-            // When empty, allow up to 3 vehicles with different non-conflicting routes
-            (order < 3 || is_highest_priority_waiting) && !has_same_route_nearby
+            is_highest_priority_waiting && !has_same_route_nearby
         } else {
-            // When occupied, still allow non-conflicting vehicles
             !has_conflict && !has_same_route_nearby
         };
 
@@ -272,8 +258,8 @@ pub fn apply_priority_based_intersection_control(
             .push((candidate.index, candidate.distance_along));
     }
 
-    let head_gap = 30.0; 
-    let queue_spacing = 70.0; 
+    let head_gap = 30.0;
+    let queue_spacing = 70.0;
 
     for ((direction, lane_index), mut entries) in lane_waiters {
         entries.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -422,24 +408,19 @@ pub fn update_waiting_vehicle_positions(vehicles: &mut [Vehicle], delta_time: f3
 }
 
 /// Check if two routes conflict in the intersection
-/// OPTIMIZED: More permissive conflict detection to allow 3+ simultaneous vehicles
 pub fn routes_conflict(dir1: Direction, route1: Route, dir2: Direction, route2: Route) -> bool {
-    // OPTIMIZATION: Same direction + same route = conflict (too close)
     if dir1 == dir2 && route1 == route2 {
         return true;
     }
 
-    // OPTIMIZATION: Same direction, different routes = no conflict
     if dir1 == dir2 {
         return false;
     }
 
-    // OPTIMIZATION: Both right turns = never conflict (separate arcs)
     if route1 == Route::Right && route2 == Route::Right {
         return false;
     }
 
-    // OPTIMIZATION: Opposite straight paths = no conflict (parallel)
     if route1 == Route::Straight && route2 == Route::Straight {
         match (dir1, dir2) {
             (Direction::North, Direction::South) | (Direction::South, Direction::North) => {
@@ -452,8 +433,6 @@ pub fn routes_conflict(dir1: Direction, route1: Route, dir2: Direction, route2: 
         }
     }
 
-    // OPTIMIZATION: Right turn + opposite straight = no conflict
-    // Example: North-Right doesn't conflict with South-Straight
     if (route1 == Route::Right && route2 == Route::Straight)
         || (route1 == Route::Straight && route2 == Route::Right)
     {
@@ -468,49 +447,14 @@ pub fn routes_conflict(dir1: Direction, route1: Route, dir2: Direction, route2: 
         }
     }
 
-    // OPTIMIZATION: Allow some Left+Straight combinations from different directions
-    // North-Left + East-Straight = no conflict (different timing)
-    if route1 == Route::Left && route2 == Route::Straight {
-        match (dir1, dir2) {
-            (Direction::North, Direction::East) | (Direction::East, Direction::North) => return false,
-            (Direction::South, Direction::West) | (Direction::West, Direction::South) => return false,
-            _ => {}
-        }
-    }
-    if route1 == Route::Straight && route2 == Route::Left {
-        match (dir1, dir2) {
-            (Direction::North, Direction::West) | (Direction::West, Direction::North) => return false,
-            (Direction::South, Direction::East) | (Direction::East, Direction::South) => return false,
-            _ => {}
-        }
-    }
-
-    // Default: assume conflict for safety
     true
 }
 
-/// Calculate vehicle priority based on route type with dynamic priority swapping
-/// Every 1 seconds, swap priority between Straight and Left to prevent long waits
-pub fn calculate_vehicle_priority(vehicle: &Vehicle, current_time: f32) -> u32 {
-    // Swap priorities every 1 seconds
-    let cycle_duration = 1.0;
-    let cycle_phase = (current_time / cycle_duration) as u32 % 2;
-    
+/// Calculate vehicle priority based on route type
+pub fn calculate_vehicle_priority(vehicle: &Vehicle) -> u32 {
     match vehicle.route {
-        Route::Right => 3, // Always highest (they bypass anyway)
-        Route::Straight => {
-            if cycle_phase == 0 {
-                2 // High priority (even cycles: 0-3s, 6-9s, etc.)
-            } else {
-                1 // Low priority (odd cycles: 3-6s, 9-12s, etc.)
-            }
-        }
-        Route::Left => {
-            if cycle_phase == 0 {
-                1 // Low priority (even cycles)
-            } else {
-                2 // High priority (odd cycles)
-            }
-        }
+        Route::Right => 3,
+        Route::Straight => 2,
+        Route::Left => 1,
     }
 }
