@@ -32,6 +32,9 @@ fn display_stats(summary: StatsSummary) {
 }
 
 fn main() -> Result<(), String> {
+    // Initialize debug logging
+    smart_road::core::vehicle_update::init_debug_log();
+    
     // Initialize SDL2
     let sdl_context = sdl2::init()?;
     let video_subsystem = sdl_context.video()?;

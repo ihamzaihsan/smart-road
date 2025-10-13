@@ -7,3 +7,4 @@ pub mod waypoints;
 
 pub use game::*;
 pub use physics::*;
+pub use vehicle_update::init_debug_log;

@@ -6,6 +6,116 @@ use crate::systems::SpawnManager;
 use nalgebra::Vector2;
 use std::collections::HashMap;
 
+/// Intersection phase for coordinated traffic flow
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IntersectionPhase {
+    NorthSouth,  // North and South can enter
+    EastWest,    // East and West can enter
+    Clearing,    // Transition period, no new entries
+}
+
+/// Manages intersection phase timing and transitions
+#[derive(Debug)]
+pub struct IntersectionPhaseManager {
+    pub current_phase: IntersectionPhase,
+    pub previous_active_phase: IntersectionPhase, // Track last active phase for alternation
+    pub phase_start_time: f32,
+    pub phase_duration: f32,        // How long each phase lasts (default: 6.0s)
+    pub clearing_duration: f32,     // Clearing buffer between phases (default: 1.0s)
+    pub max_vehicles_in_intersection: usize, // Capacity limit (default: 6)
+}
+
+impl Default for IntersectionPhaseManager {
+    fn default() -> Self {
+        Self {
+            current_phase: IntersectionPhase::NorthSouth,
+            previous_active_phase: IntersectionPhase::NorthSouth,
+            phase_start_time: 0.0,
+            phase_duration: 6.0,
+            clearing_duration: 1.0,
+            max_vehicles_in_intersection: 6,
+        }
+    }
+}
+
+impl IntersectionPhaseManager {
+    /// Check if a vehicle from this direction can enter the intersection
+    pub fn can_direction_enter(&self, direction: Direction) -> bool {
+        match self.current_phase {
+            IntersectionPhase::NorthSouth => {
+                matches!(direction, Direction::North | Direction::South)
+            }
+            IntersectionPhase::EastWest => {
+                matches!(direction, Direction::East | Direction::West)
+            }
+            IntersectionPhase::Clearing => false, // No entries during clearing
+        }
+    }
+
+    /// Update phase timing and switch phases when needed
+    pub fn update(&mut self, current_time: f32, vehicles_in_intersection: usize, waiting_counts: &HashMap<IntersectionPhase, usize>) {
+        let time_in_phase = current_time - self.phase_start_time;
+
+        match self.current_phase {
+            IntersectionPhase::Clearing => {
+                // After clearing, switch to next active phase
+                if time_in_phase >= self.clearing_duration {
+                    self.switch_to_next_active_phase(current_time);
+                }
+            }
+            IntersectionPhase::NorthSouth | IntersectionPhase::EastWest => {
+                // Check if we should switch phases
+                let should_switch = 
+                    // Minimum time elapsed and no vehicles in intersection
+                    (time_in_phase >= 3.0 && vehicles_in_intersection == 0) ||
+                    // Maximum time for fairness
+                    time_in_phase >= self.phase_duration ||
+                    // Current phase has no waiting vehicles, but other phase does
+                    (time_in_phase >= 2.0 && 
+                     waiting_counts.get(&self.current_phase).copied().unwrap_or(0) == 0 &&
+                     waiting_counts.values().any(|&count| count > 0));
+
+                if should_switch {
+                    // Store current active phase before switching to clearing
+                    self.previous_active_phase = self.current_phase;
+                    self.current_phase = IntersectionPhase::Clearing;
+                    self.phase_start_time = current_time;
+                    println!("🚦 Intersection phase: CLEARING (1s buffer)");
+                }
+            }
+        }
+    }
+
+    fn switch_to_next_active_phase(&mut self, current_time: f32) {
+        // Alternate to the opposite of the previous active phase
+        self.current_phase = match self.previous_active_phase {
+            IntersectionPhase::NorthSouth => IntersectionPhase::EastWest,
+            IntersectionPhase::EastWest => IntersectionPhase::NorthSouth,
+            IntersectionPhase::Clearing => IntersectionPhase::NorthSouth, // Shouldn't happen, but default to NS
+        };
+        
+        // Update previous_active_phase for next cycle
+        self.previous_active_phase = self.current_phase;
+        self.phase_start_time = current_time;
+        
+        let phase_name = match self.current_phase {
+            IntersectionPhase::NorthSouth => "NORTH-SOUTH",
+            IntersectionPhase::EastWest => "EAST-WEST",
+            IntersectionPhase::Clearing => "CLEARING",
+        };
+        println!("🚦 Intersection phase: {} active for {}s", phase_name, self.phase_duration);
+    }
+    
+    /// Helper to track previous phase for alternation
+    pub fn get_opposite_phase(&self) -> IntersectionPhase {
+        match self.current_phase {
+            IntersectionPhase::NorthSouth => IntersectionPhase::EastWest,
+            IntersectionPhase::EastWest => IntersectionPhase::NorthSouth,
+            IntersectionPhase::Clearing => IntersectionPhase::NorthSouth, // Default
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct ActiveIntersectionUser {
     pub id: u64,
@@ -15,10 +125,11 @@ pub struct ActiveIntersectionUser {
     pub has_entered_core: bool,
 }
 
-/// Apply priority-based intersection control
+/// Apply priority-based intersection control with phase management
 pub fn apply_priority_based_intersection_control(
     vehicles: &mut [Vehicle],
     current_intersection_users: &mut Vec<ActiveIntersectionUser>,
+    phase_manager: &mut IntersectionPhaseManager,
     road_config: &RoadConfig,
     spawn_manager: &SpawnManager,
     delta_time: f32,
@@ -168,6 +279,26 @@ pub fn apply_priority_based_intersection_control(
         .map(|v| (v.id, v.direction, v.route, v.position))
         .collect();
 
+    // Count vehicles in intersection (excluding right-turn dedicated lanes)
+    let vehicles_in_intersection = current_intersection_users
+        .iter()
+        .filter(|user| user.route != Route::Right)
+        .count();
+
+    // Count waiting vehicles per phase for intelligent switching
+    let mut waiting_counts: HashMap<IntersectionPhase, usize> = HashMap::new();
+    for candidate in &queue_candidates {
+        let phase = if matches!(candidate.direction, Direction::North | Direction::South) {
+            IntersectionPhase::NorthSouth
+        } else {
+            IntersectionPhase::EastWest
+        };
+        *waiting_counts.entry(phase).or_insert(0) += 1;
+    }
+
+    // Update phase manager
+    phase_manager.update(current_time, vehicles_in_intersection, &waiting_counts);
+
     // Process candidates for intersection access
     for (order, candidate) in queue_candidates.iter().enumerate() {
         let vehicle = &mut vehicles[candidate.index];
@@ -184,6 +315,12 @@ pub fn apply_priority_based_intersection_control(
             continue;
         }
 
+        // **PHASE CHECK**: Vehicle's direction must match current active phase
+        let direction_allowed = phase_manager.can_direction_enter(vehicle_direction);
+        
+        // **CAPACITY CHECK**: Don't exceed max vehicles in intersection
+        let intersection_has_capacity = vehicles_in_intersection < phase_manager.max_vehicles_in_intersection;
+
         let has_conflict = current_intersection_users.iter().any(|active| {
             routes_conflict(
                 vehicle_direction,
@@ -193,7 +330,8 @@ pub fn apply_priority_based_intersection_control(
             )
         });
 
-        let min_safe_distance = 500.0;
+        // Reduced safe distance - sensor zones will handle fine-grained collision avoidance
+        let min_safe_distance = 250.0;  // Was 500.0 - now more permissive for higher throughput
         let has_same_route_nearby =
             moving_vehicles
                 .iter()
@@ -213,16 +351,28 @@ pub fn apply_priority_based_intersection_control(
                 });
 
         let is_intersection_empty = current_intersection_users.is_empty();
-        let is_highest_priority_waiting = order == 0;
 
-        let should_grant_access = if is_intersection_empty {
-            is_highest_priority_waiting && !has_same_route_nearby
-        } else {
-            !has_conflict && !has_same_route_nearby
-        };
+        // IMPROVED: Phase-based granting logic with capacity limit
+        let should_grant_access = 
+            direction_allowed &&  // ✅ Phase check: only allow matching directions
+            intersection_has_capacity &&  // ✅ Capacity check: max 6 vehicles
+            if is_intersection_empty {
+                // If empty, grant to ANY high-priority vehicle
+                order < 3 && !has_same_route_nearby  // Allow top 3 priority vehicles if no conflict
+            } else {
+                // If occupied, allow MORE non-conflicting vehicles to enter
+                !has_conflict && !has_same_route_nearby
+            };
 
         if should_grant_access {
-            vehicle.state = VehicleState::AlwaysMoving;
+            // IMPORTANT: Only right-turn vehicles get AlwaysMoving state
+            // All other vehicles get Moving state (can still adjust speed for obstacles)
+            if vehicle_route == Route::Right {
+                vehicle.state = VehicleState::AlwaysMoving;
+            } else {
+                vehicle.state = VehicleState::Moving;
+            }
+            
             vehicle.queue_target = None;
             vehicle.target_speed = SPEED_LEVELS[2] as f32;
             vehicle.speed = SPEED_LEVELS[2] as f32;
@@ -305,10 +455,14 @@ pub fn apply_priority_based_intersection_control(
     }
 
     // Right-turn bypass: vehicles turning right don't need priority queue
+    // BUT must still check for vehicles ahead to prevent overlap
     let intersection_center = Vector2::new(0.0, 0.0);
     let intersection_radius = intersection_half / 1.5;
+    let min_right_turn_spacing = 250.0; // INCREASED: Minimum spacing between right-turn vehicles (was 150)
 
-    for vehicle in vehicles.iter_mut() {
+    for i in 0..vehicles.len() {
+        let vehicle = &vehicles[i];
+        
         if vehicle.state != VehicleState::Waiting {
             continue;
         }
@@ -320,10 +474,47 @@ pub fn apply_priority_based_intersection_control(
                 intersection_radius,
             )
         {
-            vehicle.state = VehicleState::AlwaysMoving;
-            vehicle.target_speed = SPEED_LEVELS[2];
-            vehicle.speed = SPEED_LEVELS[2];
-            vehicle.queue_target = None;
+            // Check if there's another vehicle too close (any direction, any state)
+            let mut has_vehicle_too_close = false;
+            let min_safe_release_distance = vehicle.length * 10.0; // VERY strict: 4.0 * 10 = 40.0 units
+            
+            for j in 0..vehicles.len() {
+                if i == j {
+                    continue;
+                }
+                let other = &vehicles[j];
+                
+                // Check distance to ANY other vehicle (regardless of direction or state)
+                let distance = (vehicle.position - other.position).magnitude();
+                if distance < min_safe_release_distance {
+                    has_vehicle_too_close = true;
+                    break;
+                }
+                
+                // ALSO check if there's a vehicle ahead in same direction at larger distance
+                if other.direction == vehicle.direction 
+                    && (other.state == VehicleState::AlwaysMoving || other.state == VehicleState::Moving) 
+                {
+                    let to_other = other.position - vehicle.position;
+                    let movement_vector = vehicle.direction.movement_vector();
+                    let dot = to_other.dot(&movement_vector);
+                    
+                    // If other vehicle is ahead
+                    if dot > 0.0 && distance < min_right_turn_spacing {
+                        has_vehicle_too_close = true;
+                        break;
+                    }
+                }
+            }
+            
+            // Only release if no vehicle is too close
+            if !has_vehicle_too_close {
+                let vehicle = &mut vehicles[i];
+                vehicle.state = VehicleState::AlwaysMoving;
+                vehicle.target_speed = SPEED_LEVELS[2];
+                vehicle.speed = SPEED_LEVELS[2];
+                vehicle.queue_target = None;
+            }
         }
     }
 
@@ -332,7 +523,8 @@ pub fn apply_priority_based_intersection_control(
 
 /// Update positions of waiting vehicles in queue
 pub fn update_waiting_vehicle_positions(vehicles: &mut [Vehicle], delta_time: f32) {
-    let approach_speed = SPEED_LEVELS[3];
+    // Reduced approach speed for smoother queue movement
+    let approach_speed = SPEED_LEVELS[2]; // Use slower speed (was SPEED_LEVELS[3])
 
     let mut movements: Vec<(usize, Vector2<f32>, f32)> = Vec::new();
 
@@ -346,6 +538,7 @@ pub fn update_waiting_vehicle_positions(vehicles: &mut [Vehicle], delta_time: f3
                     let mut can_move = true;
                     let direction_vec = to_target / distance;
 
+                    // Check collision with other vehicles in the same direction
                     for other in vehicles.iter() {
                         if other.id != vehicle.id {
                             let same_direction = vehicle.direction == other.direction;
@@ -356,13 +549,18 @@ pub fn update_waiting_vehicle_positions(vehicles: &mut [Vehicle], delta_time: f3
                             let to_other = other.position - vehicle.position;
                             let distance_to_other = to_other.magnitude();
 
+                            // Check if other vehicle is ahead of us (in our movement direction)
                             if distance_to_other < 100.0 {
                                 let dot = to_other.normalize().dot(&direction_vec);
                                 if dot > 0.7 {
+                                    // IMPORTANT: Use queue_spacing as minimum safe distance
+                                    // This prevents vehicles from rushing forward and overlapping
+                                    // when the front vehicle leaves the queue
                                     let min_safe = if other.state == VehicleState::Moving {
-                                        150.0
+                                        150.0  // Keep large distance from moving vehicles
                                     } else {
-                                        (vehicle.length + other.length) / 2.0 + 15.0
+                                        // For waiting vehicles, maintain queue spacing
+                                        60.0  // Slightly less than queue_spacing (70) for smooth movement
                                     };
 
                                     if distance_to_other < min_safe {
@@ -375,7 +573,8 @@ pub fn update_waiting_vehicle_positions(vehicles: &mut [Vehicle], delta_time: f3
                     }
 
                     if can_move {
-                        let max_step = (approach_speed * delta_time).min(distance);
+                        // Limit maximum movement per frame for smoother transitions
+                        let max_step = (approach_speed * delta_time).min(distance).min(30.0);
                         movements.push((idx, direction_vec, max_step));
                     }
                 } else if distance > 0.1 {
@@ -408,19 +607,25 @@ pub fn update_waiting_vehicle_positions(vehicles: &mut [Vehicle], delta_time: f3
 }
 
 /// Check if two routes conflict in the intersection
+/// IMPROVED: More permissive to allow 2-4 vehicles simultaneously
+/// Relies on sensor zones for fine-grained collision avoidance
 pub fn routes_conflict(dir1: Direction, route1: Route, dir2: Direction, route2: Route) -> bool {
+    // RULE 1: Same direction + same route = conflict (following too closely)
     if dir1 == dir2 && route1 == route2 {
         return true;
     }
 
+    // RULE 2: Same direction, different routes = safe (sensor zones handle spacing)
     if dir1 == dir2 {
         return false;
     }
 
+    // RULE 3: Both right turns = always safe (stay on outer edge, different exits)
     if route1 == Route::Right && route2 == Route::Right {
         return false;
     }
 
+    // RULE 4: Opposite straights = safe (pass through center without crossing)
     if route1 == Route::Straight && route2 == Route::Straight {
         match (dir1, dir2) {
             (Direction::North, Direction::South) | (Direction::South, Direction::North) => {
@@ -429,10 +634,11 @@ pub fn routes_conflict(dir1: Direction, route1: Route, dir2: Direction, route2: 
             (Direction::East, Direction::West) | (Direction::West, Direction::East) => {
                 return false
             }
-            _ => {}
+            _ => {} // Perpendicular straights conflict - continue checking
         }
     }
 
+    // RULE 5: Right turn + opposite straight = safe
     if (route1 == Route::Right && route2 == Route::Straight)
         || (route1 == Route::Straight && route2 == Route::Right)
     {
@@ -443,11 +649,43 @@ pub fn routes_conflict(dir1: Direction, route1: Route, dir2: Direction, route2: 
             (Direction::East, Direction::West) | (Direction::West, Direction::East) => {
                 return false
             }
-            _ => {}
+            _ => {} // Continue to check more combinations
         }
     }
 
-    true
+    // RULE 6 (NEW): Right turn + ANY straight = let sensor zones decide
+    // This significantly increases throughput
+    // Example: North-Right + East-Straight can proceed together
+    if (route1 == Route::Right && route2 == Route::Straight)
+        || (route1 == Route::Straight && route2 == Route::Right)
+    {
+        return false; // Sensor zones will prevent collision if paths cross
+    }
+
+    // RULE 7: Left turns - ALLOW all left turn combinations!
+    // Rely on real-time collision detection to prevent accidents
+    if route1 == Route::Left && route2 == Route::Left {
+        return false; // ALLOW: Let collision detection handle safety
+    }
+
+    // RULE 8: Left turn + straight = ALLOW with collision detection
+    if (route1 == Route::Left && route2 == Route::Straight)
+        || (route1 == Route::Straight && route2 == Route::Left)
+    {
+        return false; // ALLOW: Collision detection will prevent accidents
+    }
+
+    // RULE 9 (UPDATED): Left turn + right turn = Allow
+    // Left and right don't typically conflict
+    if (route1 == Route::Left && route2 == Route::Right)
+        || (route1 == Route::Right && route2 == Route::Left)
+    {
+        return false; // Allow with sensor protection
+    }
+
+    // DEFAULT: No conflict detected, allow entry
+    // Sensor zones will provide real-time collision avoidance
+    false
 }
 
 /// Calculate vehicle priority based on route type

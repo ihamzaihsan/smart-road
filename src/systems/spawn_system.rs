@@ -21,7 +21,7 @@ impl Default for SpawnManager {
             next_id: 1,
             last_spawn_time: HashMap::new(),
             last_lane_spawn_time: HashMap::new(),
-            spawn_cooldown: 0.4,   // Per-direction cooldown
+            spawn_cooldown: 1.2,   // Per-direction cooldown (increased to prevent spam)
             lane_cooldown: 1.0,    // Per-lane cooldown
             spawn_distance: 580.0, // Near screen edges (screen is 1200x800, so edges are at ±600, ±400)
             min_spawn_separation: 90.0,

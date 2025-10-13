@@ -27,6 +27,7 @@ pub struct Game<'a> {
     min_auto_spawn_gap: Duration,
     last_lane_used: std::collections::HashMap<Direction, usize>,
     current_intersection_users: Vec<intersection::ActiveIntersectionUser>,
+    phase_manager: intersection::IntersectionPhaseManager,
     stats_manager: StatsManager,
     pending_exit: bool,
     stats_ready: bool,
@@ -58,6 +59,7 @@ impl<'a> Game<'a> {
             min_auto_spawn_gap: Duration::from_secs_f32(0.8),
             last_lane_used: std::collections::HashMap::new(),
             current_intersection_users: Vec::new(),
+            phase_manager: intersection::IntersectionPhaseManager::default(),
             stats_manager: StatsManager::new(),
             pending_exit: false,
             stats_ready: false,
@@ -199,10 +201,11 @@ impl<'a> Game<'a> {
     }
 
     fn update_all_vehicles(&mut self, delta_time: f32, current_time: f32) {
-        // Priority-based intersection control
+        // Priority-based intersection control with phase management
         intersection::apply_priority_based_intersection_control(
             &mut self.vehicles,
             &mut self.current_intersection_users,
+            &mut self.phase_manager,
             &self.road_config,
             &self.spawn_manager,
             delta_time,

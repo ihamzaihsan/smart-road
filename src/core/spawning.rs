@@ -116,8 +116,10 @@ fn find_safe_spawn_position_with_lane(
 ) -> Option<(Vector2<f32>, usize)> {
     let lane_centers = spawn_manager.get_lane_centers(direction, road_config);
 
-    let last_lane = last_lane_used.get(&direction).copied().unwrap_or(0);
+    // Get the last lane used, defaulting to a value that will start at lane 0
+    let last_lane = last_lane_used.get(&direction).copied().unwrap_or(lane_centers.len().saturating_sub(1));
 
+    // Try all lanes in rotation, starting from the NEXT lane after the last one used
     for offset in 0..lane_centers.len() {
         let lane_index = (last_lane + 1 + offset) % lane_centers.len();
 
@@ -133,6 +135,8 @@ fn find_safe_spawn_position_with_lane(
         });
 
         if is_safe {
+            // ALWAYS update the last lane used, even if spawning rapidly
+            // This ensures proper rotation through all lanes
             last_lane_used.insert(direction, lane_index);
             return Some((potential_pos, lane_index));
         }

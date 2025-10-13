@@ -1,11 +1,24 @@
 use crate::components::{Direction, Vehicle};
 use nalgebra::Vector2;
 use std::collections::HashMap;
+use std::fs::OpenOptions;
+use std::io::Write;
+
+/// Debug logging helper
+fn log_physics_debug(message: &str) {
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("logs/collision_debug.log")
+    {
+        let _ = writeln!(file, "{}", message);
+    }
+}
 pub const MIN_SAFETY_DISTANCE: f32 = 75.0;
-pub const MAX_ACCELERATION: f32 = 250.0;
-pub const MAX_DECELERATION: f32 = 2500.0;
-pub const EMERGENCY_DECELERATION: f32 = 4000.0;
-pub const SPEED_LEVELS: [f32; 5] = [300.0, 200.0, 160.0, 120.0, 80.0];
+pub const MAX_ACCELERATION: f32 = 350.0; // INCREASED from 250.0 - faster acceleration
+pub const MAX_DECELERATION: f32 = 3000.0; // INCREASED from 2500.0 - faster braking
+pub const EMERGENCY_DECELERATION: f32 = 5000.0; // INCREASED from 4000.0 - emergency braking
+pub const SPEED_LEVELS: [f32; 5] = [500.0, 350.0, 300.0, 150.0, 100.0]; 
 pub const TIME_HEADWAY: f32 = 2.0;
 pub const MIN_BUFFER_DISTANCE: f32 = 120.0;
 pub const CRITICAL_DISTANCE: f32 = 60.0;
@@ -147,6 +160,18 @@ impl VehiclePhysics {
         future_distance < 80.0
     }
     pub fn update_vehicle_physics(vehicle: &mut Vehicle, delta_time: f32) {
+        // CRITICAL FIX: If target_speed is 0, keep speed at 0 (collision avoidance)
+        if vehicle.target_speed == 0.0 {
+            if vehicle.speed != 0.0 {
+                log_physics_debug(&format!(
+                    "[PHYSICS_STOP] V{} target=0, forcing speed from {:.1} to 0.0",
+                    vehicle.id, vehicle.speed
+                ));
+            }
+            vehicle.speed = 0.0;
+            return; // Don't move if we're supposed to stop
+        }
+        
         let speed_diff = vehicle.target_speed - vehicle.speed;
         let acceleration = if speed_diff > 0.0 {
             Self::get_max_acceleration(vehicle.speed)
@@ -159,10 +184,19 @@ impl VehiclePhysics {
         } else {
             0.0
         };
+        
+        let old_speed = vehicle.speed;
         vehicle.speed += acceleration * delta_time;
         vehicle.speed = vehicle
             .speed
             .clamp(0.0, vehicle.target_speed.max(vehicle.speed * 0.95));
+
+        if (vehicle.speed - old_speed).abs() > 10.0 {
+            log_physics_debug(&format!(
+                "[PHYSICS_ACCEL] V{} target={:.1}, accel={:.1}, speed {:.1}->{:.1}",
+                vehicle.id, vehicle.target_speed, acceleration, old_speed, vehicle.speed
+            ));
+        }
 
         Self::update_position_along_path(vehicle, delta_time);
     }

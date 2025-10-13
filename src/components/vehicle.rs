@@ -1,5 +1,73 @@
 use nalgebra::Vector2;
 
+/// Forward-looking detection zone for collision avoidance
+#[derive(Debug, Clone, Copy)]
+pub struct SensorZone {
+    pub position: Vector2<f32>,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl SensorZone {
+    /// Creates a sensor zone extending forward from the vehicle
+    pub fn new(vehicle: &Vehicle, length: f32, width: f32) -> Self {
+        // Create a detection box ahead of the vehicle based on its direction
+        // Vehicle.position is the CENTER of the vehicle
+        // FIXED: Corrected sensor zone positioning for all directions
+        match vehicle.direction {
+            Direction::North => SensorZone {
+                position: Vector2::new(
+                    vehicle.position.x - width / 2.0,
+                    vehicle.position.y + vehicle.length / 2.0,  // North moves in +Y, sensor extends from front
+                ),
+                width,
+                height: length,
+            },
+            Direction::South => SensorZone {
+                position: Vector2::new(
+                    vehicle.position.x - width / 2.0,
+                    vehicle.position.y - vehicle.length / 2.0 - length,  // South moves in -Y, sensor extends from front
+                ),
+                width,
+                height: length,
+            },
+            Direction::East => SensorZone {
+                position: Vector2::new(
+                    vehicle.position.x + vehicle.length / 2.0,  // East moves in +X, use length not width
+                    vehicle.position.y - width / 2.0,
+                ),
+                width: length,
+                height: width,
+            },
+            Direction::West => SensorZone {
+                position: Vector2::new(
+                    vehicle.position.x - vehicle.length / 2.0 - length,  // West moves in -X, use length not width
+                    vehicle.position.y - width / 2.0,
+                ),
+                width: length,
+                height: width,
+            },
+        }
+    }
+
+    /// Check if this sensor zone intersects with another vehicle's hitbox
+    pub fn intersects_vehicle(&self, other: &Vehicle) -> bool {
+        let sx = self.position.x;
+        let sy = self.position.y;
+        let sw = self.width;
+        let sh = self.height;
+
+        // Other vehicle's bounding box (position is center)
+        let ox = other.position.x - other.width / 2.0;
+        let oy = other.position.y - other.length / 2.0;
+        let ow = other.width;
+        let oh = other.length;
+
+        // Rectangle intersection test
+        sx < ox + ow && sx + sw > ox && sy < oy + oh && sy + sh > oy
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Vehicle {
     pub id: u64,
@@ -129,5 +197,125 @@ impl Vehicle {
     pub fn set_path(&mut self, path: Vec<Vector2<f32>>) {
         self.path = path;
         self.path_index = 0;
+    }
+
+    /// Check for vehicles ahead using forward-looking sensor zone
+    /// Returns (detected, closest_distance) tuple
+    pub fn check_ahead(&self, all_vehicles: &[Vehicle], sensor_length: f32, sensor_width: f32) -> (bool, Option<f32>) {
+        let sensor = SensorZone::new(self, sensor_length, sensor_width);
+        
+        let mut closest_distance: Option<f32> = None;
+        let mut detected = false;
+
+        for other in all_vehicles {
+            if self.id == other.id {
+                continue;
+            }
+
+            if sensor.intersects_vehicle(other) {
+                // SIMPLIFIED: Just calculate the gap between vehicles based on direction
+                // This is the actual clear space between the vehicles
+                let gap_distance = match self.direction {
+                    Direction::North => {
+                        // North moves in +Y direction
+                        let my_front = self.position.y + self.length / 2.0;
+                        let other_rear = other.position.y - other.length / 2.0;
+                        // Gap is positive if other is ahead
+                        if other_rear > my_front {
+                            Some(other_rear - my_front)
+                        } else {
+                            Some(0.0) // Vehicles overlapping or side-by-side, emergency!
+                        }
+                    }
+                    Direction::South => {
+                        // South moves in -Y direction
+                        let my_front = self.position.y - self.length / 2.0;
+                        let other_rear = other.position.y + other.length / 2.0;
+                        // Gap is positive if other is ahead
+                        if other_rear < my_front {
+                            Some(my_front - other_rear)
+                        } else {
+                            Some(0.0) // Vehicles overlapping or side-by-side, emergency!
+                        }
+                    }
+                    Direction::East => {
+                        // East moves in +X direction
+                        let my_front = self.position.x + self.length / 2.0;
+                        let other_rear = other.position.x - other.length / 2.0;
+                        // Gap is positive if other is ahead
+                        if other_rear > my_front {
+                            Some(other_rear - my_front)
+                        } else {
+                            Some(0.0) // Vehicles overlapping or side-by-side, emergency!
+                        }
+                    }
+                    Direction::West => {
+                        // West moves in -X direction  
+                        let my_front = self.position.x - self.length / 2.0;
+                        let other_rear = other.position.x + other.length / 2.0;
+                        // Gap is positive if other is ahead
+                        if other_rear < my_front {
+                            Some(my_front - other_rear)
+                        } else {
+                            Some(0.0) // Vehicles overlapping or side-by-side, emergency!
+                        }
+                    }
+                };
+
+                if let Some(distance) = gap_distance {
+                    detected = true;
+                    closest_distance = Some(match closest_distance {
+                        Some(current_min) => current_min.min(distance),
+                        None => distance,
+                    });
+                }
+            }
+        }
+
+        (detected, closest_distance)
+    }
+    
+    /// 360-DEGREE proximity check - detects vehicles from ANY direction
+    /// Returns (detected, closest_vehicle_id, closest_distance)
+    /// This is critical for intersection safety where threats come from all directions!
+    pub fn check_proximity_360(&self, all_vehicles: &[Vehicle], safety_radius: f32) -> (bool, Option<u64>, Option<f32>) {
+        let mut closest_distance: Option<f32> = None;
+        let mut closest_vehicle_id: Option<u64> = None;
+        let mut detected = false;
+        
+        // Vehicle dimensions for accurate collision threshold
+        let my_half_length = self.length / 2.0;
+        let my_half_width = self.width / 2.0;
+        
+        for other in all_vehicles {
+            if self.id == other.id {
+                continue;
+            }
+            
+            // Calculate center-to-center distance
+            let center_distance = (self.position - other.position).magnitude();
+            
+            // Calculate the minimum safe distance based on both vehicles' dimensions
+            let other_half_length = other.length / 2.0;
+            let other_half_width = other.width / 2.0;
+            
+            // Collision threshold = when vehicles just touch
+            // Add safety margin to stop BEFORE contact
+            let collision_threshold = (my_half_length + other_half_length).max(my_half_width + other_half_width);
+            let safe_distance = collision_threshold + safety_radius;
+            
+            // Check if other vehicle is within safety radius
+            if center_distance < safe_distance {
+                detected = true;
+                
+                // Track closest vehicle
+                if closest_distance.is_none() || center_distance < closest_distance.unwrap() {
+                    closest_distance = Some(center_distance);
+                    closest_vehicle_id = Some(other.id);
+                }
+            }
+        }
+        
+        (detected, closest_vehicle_id, closest_distance)
     }
 }
