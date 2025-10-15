@@ -526,32 +526,4 @@ pub fn cleanup_vehicles(vehicles: &mut Vec<Vehicle>, cleanup_distance: f32) -> V
     removed
 }
 
-/// Check if two vehicles are in the same lane
-pub fn are_vehicles_in_same_lane_static(
-    vehicle1: &Vehicle,
-    vehicle2: &Vehicle,
-    road_config: &RoadConfig,
-) -> bool {
-    if vehicle1.direction != vehicle2.direction {
-        return false;
-    }
-    let lane_tolerance = road_config.lane_width * 0.70;
-    let perpendicular_distance = match vehicle1.direction {
-        crate::components::Direction::North | crate::components::Direction::South => {
-            (vehicle1.position.x - vehicle2.position.x).abs()
-        }
-        crate::components::Direction::East | crate::components::Direction::West => {
-            (vehicle1.position.y - vehicle2.position.y).abs()
-        }
-    };
 
-    perpendicular_distance < lane_tolerance
-}
-
-/// Check if vehicle1 is following vehicle2
-pub fn is_vehicle_following_static(vehicle1: &Vehicle, vehicle2: &Vehicle) -> bool {
-    let to_other = vehicle2.position - vehicle1.position;
-    let movement_vector = vehicle1.direction.movement_vector();
-    let dot = to_other.dot(&movement_vector);
-    dot > 0.0
-}

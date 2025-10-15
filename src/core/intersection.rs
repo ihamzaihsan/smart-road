@@ -80,7 +80,6 @@ impl IntersectionPhaseManager {
                     self.previous_active_phase = self.current_phase;
                     self.current_phase = IntersectionPhase::Clearing;
                     self.phase_start_time = current_time;
-                    println!("🚦 Intersection phase: CLEARING (1s buffer)");
                 }
             }
         }
@@ -98,22 +97,11 @@ impl IntersectionPhaseManager {
         self.previous_active_phase = self.current_phase;
         self.phase_start_time = current_time;
         
-        let phase_name = match self.current_phase {
-            IntersectionPhase::NorthSouth => "NORTH-SOUTH",
-            IntersectionPhase::EastWest => "EAST-WEST",
-            IntersectionPhase::Clearing => "CLEARING",
-        };
-        println!("🚦 Intersection phase: {} active for {}s", phase_name, self.phase_duration);
+        
+        
     }
     
-    /// Helper to track previous phase for alternation
-    pub fn get_opposite_phase(&self) -> IntersectionPhase {
-        match self.current_phase {
-            IntersectionPhase::NorthSouth => IntersectionPhase::EastWest,
-            IntersectionPhase::EastWest => IntersectionPhase::NorthSouth,
-            IntersectionPhase::Clearing => IntersectionPhase::NorthSouth, // Default
-        }
-    }
+
 }
 
 #[derive(Clone, Copy)]

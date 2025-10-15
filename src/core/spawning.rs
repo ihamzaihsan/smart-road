@@ -57,7 +57,7 @@ pub fn handle_spawn_toggle(
     if input_system.just_pressed(Keycode::R) {
         auto_spawn_timer.enabled = !auto_spawn_timer.enabled;
         if auto_spawn_timer.enabled {
-            println!("🚗 Automatic spawning ENABLED (+1.0s throttle)");
+            println!("🚗 Automatic spawning ENABLED");
             auto_spawn_timer.reset_timer();
             *last_auto_spawn_at = Instant::now();
         } else {

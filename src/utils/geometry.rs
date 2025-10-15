@@ -30,20 +30,7 @@ pub fn conflict(a: Point, b: Point, separation: f32) -> bool {
     distance(a, b) < separation
 }
 
-pub fn angle_between_points(from: Point, to: Point) -> f32 {
-    let dx = to.x - from.x;
-    let dy = to.y - from.y;
-    dy.atan2(dx)
-}
 
-pub fn rotate_point(point: Point, angle: f32) -> Point {
-    let cos_a = angle.cos();
-    let sin_a = angle.sin();
-    Point {
-        x: point.x * cos_a - point.y * sin_a,
-        y: point.x * sin_a + point.y * cos_a,
-    }
-}
 #[cfg(test)]
 mod tests {
     use super::*;
