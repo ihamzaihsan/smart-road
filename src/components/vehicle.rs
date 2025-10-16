@@ -92,7 +92,6 @@ pub enum VehicleState {
     Waiting,
     Moving,
     Stopped,
-    Yielding,
     AlwaysMoving,
 }
 
@@ -179,14 +178,7 @@ impl Vehicle {
         }
     }
 
-    pub fn has_reached_destination(&self) -> bool {
-        self.path_index >= self.path.len()
-    }
 
-    pub fn set_path(&mut self, path: Vec<Vector2<f32>>) {
-        self.path = path;
-        self.path_index = 0;
-    }
 
     pub fn check_ahead(&self, all_vehicles: &[Vehicle], sensor_length: f32, sensor_width: f32) -> (bool, Option<f32>) {
         let sensor = SensorZone::new(self, sensor_length, sensor_width);
@@ -260,47 +252,4 @@ impl Vehicle {
         (detected, closest_distance)
     }
     
-    /// 360-DEGREE proximity check - detects vehicles from ANY direction
-    /// Returns (detected, closest_vehicle_id, closest_distance)
-    /// This is critical for intersection safety where threats come from all directions!
-    pub fn check_proximity_360(&self, all_vehicles: &[Vehicle], safety_radius: f32) -> (bool, Option<u64>, Option<f32>) {
-        let mut closest_distance: Option<f32> = None;
-        let mut closest_vehicle_id: Option<u64> = None;
-        let mut detected = false;
-        
-        // Vehicle dimensions for accurate collision threshold
-        let my_half_length = self.length / 2.0;
-        let my_half_width = self.width / 2.0;
-        
-        for other in all_vehicles {
-            if self.id == other.id {
-                continue;
-            }
-            
-            // Calculate center-to-center distance
-            let center_distance = (self.position - other.position).magnitude();
-            
-            // Calculate the minimum safe distance based on both vehicles' dimensions
-            let other_half_length = other.length / 2.0;
-            let other_half_width = other.width / 2.0;
-            
-            // Collision threshold = when vehicles just touch
-            // Add safety margin to stop BEFORE contact
-            let collision_threshold = (my_half_length + other_half_length).max(my_half_width + other_half_width);
-            let safe_distance = collision_threshold + safety_radius;
-            
-            // Check if other vehicle is within safety radius
-            if center_distance < safe_distance {
-                detected = true;
-                
-                // Track closest vehicle
-                if closest_distance.is_none() || center_distance < closest_distance.unwrap() {
-                    closest_distance = Some(center_distance);
-                    closest_vehicle_id = Some(other.id);
-                }
-            }
-        }
-        
-        (detected, closest_vehicle_id, closest_distance)
-    }
 }
