@@ -8,7 +8,6 @@ use nalgebra::Vector2;
 use std::fs::OpenOptions;
 use std::io::Write;
 
-/// Debug logging helper
 fn log_debug(message: &str) {
     if let Ok(mut file) = OpenOptions::new()
         .create(true)
@@ -19,51 +18,42 @@ fn log_debug(message: &str) {
     }
 }
 
-/// Emergency separation: Push overlapping vehicles apart to prevent collision lock
-/// EXCEPTION: Right-turn vehicles are excluded (they use dedicated lanes)
 fn separate_overlapping_vehicles(vehicles: &mut [Vehicle], delta_time: f32) {
     use crate::components::Route;
     
-    let collision_threshold = 4.0; // Same as vehicle length
-    let separation_force = 100.0; // pixels per second to push apart (increased from 20.0)
+    let collision_threshold = 4.0;
+    let separation_force = 100.0;
     
     for i in 0..vehicles.len() {
-        // Skip if this is a right-turn vehicle
         let v1_is_right_turn = vehicles[i].state == VehicleState::AlwaysMoving 
             && vehicles[i].route == Route::Right;
         
         for j in (i + 1)..vehicles.len() {
-            // Skip if either vehicle is a right-turn vehicle
             let v2_is_right_turn = vehicles[j].state == VehicleState::AlwaysMoving 
                 && vehicles[j].route == Route::Right;
             
             if v1_is_right_turn || v2_is_right_turn {
-                continue; // Right-turn vehicles use dedicated lanes, no separation needed
+                continue;
             }
             
             let distance = (vehicles[i].position - vehicles[j].position).magnitude();
             
-            // If actually overlapping (not just within safety margin)
             if distance < collision_threshold {
                 let v1_id = vehicles[i].id;
                 let v2_id = vehicles[j].id;
                 let v1_speed = vehicles[i].speed;
                 let v2_speed = vehicles[j].speed;
                 
-                // Calculate separation vector (push away from each other)
                 let direction = if distance > 0.01 {
                     (vehicles[j].position - vehicles[i].position) / distance
                 } else {
-                    // If exactly on top of each other, use random direction
                     Vector2::new(1.0, 0.0)
                 };
                 
-                // Determine which vehicle to move based on speed
-                // Move the faster one backward
                 if v1_speed > v2_speed {
                     let push_distance = separation_force * delta_time;
                     vehicles[i].position -= direction * push_distance;
-                    vehicles[i].speed = 0.0; // Stop the pushed vehicle
+                    vehicles[i].speed = 0.0;
                     vehicles[i].target_speed = 0.0;
                     log_debug(&format!(
                         "[SEPARATION] Pushed V{} backward by {:.2} to separate from V{}",
@@ -72,14 +62,13 @@ fn separate_overlapping_vehicles(vehicles: &mut [Vehicle], delta_time: f32) {
                 } else if v2_speed > v1_speed {
                     let push_distance = separation_force * delta_time;
                     vehicles[j].position += direction * push_distance;
-                    vehicles[j].speed = 0.0; // Stop the pushed vehicle
+                    vehicles[j].speed = 0.0;
                     vehicles[j].target_speed = 0.0;
                     log_debug(&format!(
                         "[SEPARATION] Pushed V{} backward by {:.2} to separate from V{}",
                         v2_id, push_distance, v1_id
                     ));
                 } else {
-                    // Both same speed (likely both stopped), push both apart
                     let push_distance = separation_force * delta_time * 0.5;
                     vehicles[i].position -= direction * push_distance;
                     vehicles[j].position += direction * push_distance;
@@ -93,7 +82,6 @@ fn separate_overlapping_vehicles(vehicles: &mut [Vehicle], delta_time: f32) {
     }
 }
 
-/// Initialize debug log (clear old data)
 pub fn init_debug_log() {
     use std::fs::File;
     println!("[DEBUG] Initializing collision debug log...");
@@ -108,7 +96,6 @@ pub fn init_debug_log() {
     }
 }
 
-/// Main vehicle update function
 pub fn update_vehicles(
     vehicles: &mut [Vehicle],
     conflict_calendar: &mut ConflictCalendar,
@@ -117,7 +104,6 @@ pub fn update_vehicles(
     current_time: f32,
     stats_manager: &mut StatsManager,
 ) {
-    // Log frame marker every 60 frames (once per second at 60fps)
     use std::sync::atomic::{AtomicU32, Ordering};
     static FRAME_COUNTER: AtomicU32 = AtomicU32::new(0);
     let frame = FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -127,34 +113,26 @@ pub fn update_vehicles(
     
     let road_half_width: f32 = road_config.lane_width * road_config.num_lanes as f32;
 
-    // Sensor zone parameters (adjustable for tuning)
-    const SENSOR_LENGTH: f32 = 200.0;  // How far ahead to look
-    const SENSOR_WIDTH: f32 = 80.0;    // Width of detection zone (increased to catch adjacent lanes)
-    const EMERGENCY_DISTANCE: f32 = 80.0;  // Stop completely (increased from 60 to account for vehicle dimensions)
-    const CRITICAL_DISTANCE: f32 = 120.0;  // Very slow (increased from 100)
-    const WARNING_DISTANCE: f32 = 170.0;   // Slow down (increased from 150)
+    const SENSOR_LENGTH: f32 = 200.0;
+    const SENSOR_WIDTH: f32 = 80.0;
+    const EMERGENCY_DISTANCE: f32 = 80.0;
+    const CRITICAL_DISTANCE: f32 = 120.0;
+    const WARNING_DISTANCE: f32 = 170.0;
     
-    // Track which vehicles are in emergency stop (to prevent override by second pass)
     let mut emergency_stopped: Vec<bool> = vec![false; vehicles.len()];
-    // Track vehicles that were slowed/overridden by collision detection this frame
     let mut detection_active: Vec<bool> = vec![false; vehicles.len()];
 
-    // First pass: 360-DEGREE collision detection for ALL vehicles (except right-turn)
-    // This catches threats from ANY direction - critical for intersections!
     for i in 0..vehicles.len() {
-        // Skip right-turn vehicles (they use dedicated lanes)
         let is_right_turn = vehicles[i].state == VehicleState::AlwaysMoving 
             && vehicles[i].route == crate::components::Route::Right;
         if is_right_turn {
             continue;
         }
         
-        // Skip stopped/waiting vehicles
         if vehicles[i].state == VehicleState::Waiting || vehicles[i].state == VehicleState::Stopped {
             continue;
         }
         
-        // Get vehicle info for the check (immutable borrow)
         let vehicle_id = vehicles[i].id;
         let vehicle_state = vehicles[i].state;
         let vehicle_direction = vehicles[i].direction;
@@ -163,9 +141,6 @@ pub fn update_vehicles(
         let vehicle_length = vehicles[i].length;
         let vehicle_speed = vehicles[i].speed;
         
-        // CRITICAL: Much larger safety radius for EARLY detection
-        // Old: 6.0 units - Too late! Vehicles already at 4.73 units before detection
-        // New: 25.0 units - Detect threats much earlier, giving time to brake
         let safety_radius = 25.0;
         
         let mut closest_distance: Option<f32> = None;
@@ -176,7 +151,6 @@ pub fn update_vehicles(
                 continue;
             }
             
-            // Skip right-turn vehicles
             let other_is_right_turn = vehicles[j].state == VehicleState::AlwaysMoving 
                 && vehicles[j].route == crate::components::Route::Right;
             if other_is_right_turn {
@@ -184,8 +158,8 @@ pub fn update_vehicles(
             }
             
             let center_distance = (vehicle_position - vehicles[j].position).magnitude();
-            let collision_threshold = (vehicle_length + vehicles[j].length) / 2.0; // ~4.0
-            let safe_distance = collision_threshold + safety_radius; // ~29.0 units
+            let collision_threshold = (vehicle_length + vehicles[j].length) / 2.0;
+            let safe_distance = collision_threshold + safety_radius;
             
             if center_distance < safe_distance {
                 log_debug(&format!(
@@ -199,30 +173,24 @@ pub fn update_vehicles(
             }
         }
         
-        // Now apply response (mutable access)
         if let (Some(other_id), Some(distance)) = (closest_id, closest_distance) {
             let collision_threshold = 4.0;
-            
-            // Calculate braking zones based on vehicle speed
-            // Higher speed = need more distance to brake safely
-            let speed_factor = vehicle_speed / 200.0; // Normalize to 0-1
-            let critical_zone = collision_threshold + 6.0 * (1.0 + speed_factor); // 6-12 units (REDUCED from 8-16)
-            let warning_zone = collision_threshold + 12.0 * (1.0 + speed_factor); // 12-24 units (REDUCED from 15-30)
+            let speed_factor = vehicle_speed / 200.0;
+            let critical_zone = collision_threshold + 6.0 * (1.0 + speed_factor);
+            let warning_zone = collision_threshold + 12.0 * (1.0 + speed_factor);
             
             detection_active[i] = true;
 
             if distance < critical_zone {
-                // CRITICAL: Emergency brake! Vehicle very close
                 vehicles[i].speed = 0.0;
                 vehicles[i].target_speed = 0.0;
-                emergency_stopped[i] = true; // Mark as emergency stopped
+                emergency_stopped[i] = true;
                 log_debug(&format!(
                     "[360_CRITICAL] V{}(state={:?},dir={:?},route={:?},speed={:.1}) EMERGENCY BRAKE - V{} at {:.2} units (critical_zone={:.2})",
                     vehicle_id, vehicle_state, vehicle_direction, vehicle_route, vehicle_speed, other_id, distance, critical_zone
                 ));
             } else if distance < warning_zone {
-                // WARNING: Slow down significantly but keep moving
-                let safe_speed = SPEED_LEVELS[4].min(vehicle_speed); // Max 80 px/s (100.0)
+                let safe_speed = SPEED_LEVELS[4].min(vehicle_speed);
                 vehicles[i].speed = safe_speed;
                 vehicles[i].target_speed = safe_speed;
                 log_debug(&format!(
@@ -230,8 +198,7 @@ pub fn update_vehicles(
                     vehicle_id, safe_speed, other_id, distance
                 ));
             } else {
-                // CAUTION: Reduce speed moderately
-                let safe_speed = SPEED_LEVELS[3].min(vehicle_speed); // Max 150 px/s
+                let safe_speed = SPEED_LEVELS[3].min(vehicle_speed);
                 vehicles[i].target_speed = safe_speed;
                 log_debug(&format!(
                     "[360_CAUTION] V{} reducing speed - V{} at {:.2} units",
@@ -241,25 +208,19 @@ pub fn update_vehicles(
         }
     }
     
-    // NEW: Universal collision avoidance using sensor zones
-    // Works for ALL vehicle states and ALL directions
-    // CRITICAL: This must run EVERY frame to prevent collisions
-    // EXCEPT: Right-turn vehicles (AlwaysMoving + Right route) move at fixed speed and ignore obstacles
+    let mut mutual_blocks: Vec<(usize, usize, f32, f32)> = Vec::new();
+    
     for i in 0..vehicles.len() {
         let vehicle = &vehicles[i];
         
-        // Skip stopped/waiting vehicles
         if vehicle.state == VehicleState::Waiting || vehicle.state == VehicleState::Stopped {
             continue;
         }
         
-        // RIGHT-TURN OPTIMIZATION: Right-turn vehicles move at constant speed and ignore collision detection
-        // They use dedicated right-turn lanes that never intersect with other traffic
         if vehicle.state == VehicleState::AlwaysMoving && vehicle.route == crate::components::Route::Right {
-            // Set to constant medium speed and skip sensor detection
-            vehicles[i].target_speed = SPEED_LEVELS[2]; // 200 px/s
+            vehicles[i].target_speed = SPEED_LEVELS[2];
             vehicles[i].speed = vehicles[i].speed.min(SPEED_LEVELS[2]);
-            continue; // Skip collision detection entirely
+            continue;
         }
 
         let (detected, closest_distance) = vehicle.check_ahead(vehicles, SENSOR_LENGTH, SENSOR_WIDTH);
@@ -267,6 +228,26 @@ pub fn update_vehicles(
         if detected {
             if let Some(distance) = closest_distance {
                 detection_active[i] = true;
+                
+                if distance < EMERGENCY_DISTANCE {
+                    let sensor = crate::components::vehicle::SensorZone::new(&vehicle, SENSOR_LENGTH, SENSOR_WIDTH);
+                    for j in 0..vehicles.len() {
+                        if i == j || vehicles[j].route == crate::components::Route::Right {
+                            continue;
+                        }
+                        if sensor.intersects_vehicle(&vehicles[j]) {
+                            let (other_detected, other_distance) = vehicles[j].check_ahead(vehicles, SENSOR_LENGTH, SENSOR_WIDTH);
+                            if other_detected && other_distance.is_some() && other_distance.unwrap() < EMERGENCY_DISTANCE {
+                                let other_sensor = crate::components::vehicle::SensorZone::new(&vehicles[j], SENSOR_LENGTH, SENSOR_WIDTH);
+                                if other_sensor.intersects_vehicle(&vehicle) {
+                                    mutual_blocks.push((i, j, distance, other_distance.unwrap()));
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                
                 let action = if distance < EMERGENCY_DISTANCE {
                     "EMERGENCY_STOP"
                 } else if distance < CRITICAL_DISTANCE {
@@ -286,26 +267,21 @@ pub fn update_vehicles(
                     vehicle.speed, vehicle.target_speed, vehicle.position.x, vehicle.position.y
                 ));
                 
-                // IMMEDIATE response - no gradual acceleration when obstacle detected
                 if distance < EMERGENCY_DISTANCE {
-                    // EMERGENCY: FULL STOP - lock both speed and target_speed
                     vehicles[i].speed = 0.0;
                     vehicles[i].target_speed = 0.0;
-                    emergency_stopped[i] = true; // Mark as emergency stopped
+                    emergency_stopped[i] = true;
                 } else if distance < CRITICAL_DISTANCE {
-                    // CRITICAL: Force very slow speed immediately
                     let safe_speed = SPEED_LEVELS[4];
                     vehicles[i].speed = vehicles[i].speed.min(safe_speed);
                     vehicles[i].target_speed = safe_speed;
                 } else if distance < WARNING_DISTANCE {
-                    // WARNING: Reduce to moderate speed
                     let safe_speed = SPEED_LEVELS[3];
                     if vehicles[i].speed > safe_speed {
                         vehicles[i].speed = safe_speed;
                     }
                     vehicles[i].target_speed = vehicles[i].target_speed.min(safe_speed);
                 } else {
-                    // CAUTION: Slight reduction
                     vehicles[i].target_speed = vehicles[i].target_speed.min(SPEED_LEVELS[2]);
                 }
                 
@@ -317,7 +293,46 @@ pub fn update_vehicles(
         }
     }
     
-    // Conflict resolution based on conflict calendar (backup safety)
+    for (idx1, idx2, _dist1, _dist2) in mutual_blocks {
+        let dir1_priority = match vehicles[idx1].direction {
+            crate::components::Direction::North => 3,
+            crate::components::Direction::East => 2,
+            crate::components::Direction::South => 1,
+            crate::components::Direction::West => 0,
+        };
+        let dir2_priority = match vehicles[idx2].direction {
+            crate::components::Direction::North => 3,
+            crate::components::Direction::East => 2,
+            crate::components::Direction::South => 1,
+            crate::components::Direction::West => 0,
+        };
+        
+        let (priority_idx, yield_idx) = if dir1_priority > dir2_priority {
+            (idx1, idx2)
+        } else if dir2_priority > dir1_priority {
+            (idx2, idx1)
+        } else {
+            if vehicles[idx1].id < vehicles[idx2].id {
+                (idx1, idx2)
+            } else {
+                (idx2, idx1)
+            }
+        };
+        
+        vehicles[priority_idx].speed = SPEED_LEVELS[4];
+        vehicles[priority_idx].target_speed = SPEED_LEVELS[4];
+        emergency_stopped[priority_idx] = false;
+        
+        vehicles[yield_idx].speed = 0.0;
+        vehicles[yield_idx].target_speed = 0.0;
+        emergency_stopped[yield_idx] = true;
+        
+        log_debug(&format!(
+            "[MUTUAL_BLOCK_RESOLVED] V{} (dir={:?}) proceeds at slow speed, V{} (dir={:?}) yields",
+            vehicles[priority_idx].id, vehicles[priority_idx].direction,
+            vehicles[yield_idx].id, vehicles[yield_idx].direction
+        ));
+    }
 
     let intersection_size = road_config.lane_width * road_config.num_lanes as f32;
     for v in vehicles.iter_mut() {
@@ -361,15 +376,11 @@ pub fn update_vehicles(
         }
     }
 
-    // Second pass: normalize target speeds without undoing collision slowdowns
-    // CRITICAL: Do NOT override emergency stops!
-    // Runs after collision detection so detection_active can govern target-speed recovery
     for (idx, v) in vehicles.iter_mut().enumerate() {
         if v.state != VehicleState::Moving && v.state != VehicleState::AlwaysMoving {
             continue;
         }
         
-        // CRITICAL: Skip vehicles in emergency stop
         if emergency_stopped[idx] {
             log_debug(&format!("[SECOND_PASS] Skipping V{} - in emergency stop", v.id));
             continue;
@@ -396,9 +407,7 @@ pub fn update_vehicles(
         }
     }
 
-    // Apply physics
     for v in vehicles.iter_mut() {
-        // Skip only truly stopped/waiting vehicles
         if v.state == VehicleState::Waiting || v.state == VehicleState::Stopped {
             continue;
         }
@@ -407,12 +416,9 @@ pub fn update_vehicles(
         let before_target = v.target_speed;
         let before_pos = v.position;
         
-        // Both Moving and AlwaysMoving vehicles use full physics
-        // (AlwaysMoving can still slow down for obstacles via sensor detection)
         v.target_speed = quantize_with_hysteresis(v.speed, v.target_speed);
         VehiclePhysics::update_vehicle_physics(v, delta_time);
         
-        // Log any vehicle that moves or changes speed
         if (v.position - before_pos).magnitude() > 0.1 || (v.speed - before_speed).abs() > 0.1 {
             log_debug(&format!(
                 "[PHYSICS] V{} (state={:?}) target={:.1}->{:.1}, speed={:.1}->{:.1}, moved {:.1}px",
@@ -422,14 +428,11 @@ pub fn update_vehicles(
         }
     }
     
-    // EMERGENCY SEPARATION: Push overlapping vehicles apart
     separate_overlapping_vehicles(vehicles, delta_time);
 
     check_vehicle_overlaps(vehicles, stats_manager);
 }
 
-/// Check if any vehicles have overlapping positions
-/// EXCEPTION: Right-turn vehicles are excluded (they use dedicated lanes)
 pub fn check_vehicle_overlaps(vehicles: &[Vehicle], stats_manager: &mut StatsManager) {
     use crate::components::Route;
     let mut overlaps_found = false;
@@ -439,12 +442,11 @@ pub fn check_vehicle_overlaps(vehicles: &[Vehicle], stats_manager: &mut StatsMan
             let v1 = &vehicles[i];
             let v2 = &vehicles[j];
             
-            // Skip if either vehicle is a right-turn vehicle
             let v1_is_right_turn = v1.state == VehicleState::AlwaysMoving && v1.route == Route::Right;
             let v2_is_right_turn = v2.state == VehicleState::AlwaysMoving && v2.route == Route::Right;
             
             if v1_is_right_turn || v2_is_right_turn {
-                continue; // Right-turn vehicles use dedicated lanes, no overlap checking needed
+                continue;
             }
 
             let distance = (v1.position - v2.position).magnitude();
@@ -462,7 +464,6 @@ pub fn check_vehicle_overlaps(vehicles: &[Vehicle], stats_manager: &mut StatsMan
                 min_safe_distance,
             );
 
-            // ONLY report ACTUAL collisions (overlapping hitboxes), not safety margin violations
             if distance < collision_threshold {
                 if !overlaps_found {
                     println!("\n⚠️  === VEHICLE OVERLAP DETECTED ===");
@@ -510,7 +511,6 @@ pub fn check_vehicle_overlaps(vehicles: &[Vehicle], stats_manager: &mut StatsMan
     }
 }
 
-/// Remove vehicles that have exited the simulation area
 pub fn cleanup_vehicles(vehicles: &mut Vec<Vehicle>, cleanup_distance: f32) -> Vec<u64> {
     let mut removed = Vec::new();
     let mut index = 0;

@@ -9,16 +9,12 @@ pub struct SensorZone {
 }
 
 impl SensorZone {
-    /// Creates a sensor zone extending forward from the vehicle
     pub fn new(vehicle: &Vehicle, length: f32, width: f32) -> Self {
-        // Create a detection box ahead of the vehicle based on its direction
-        // Vehicle.position is the CENTER of the vehicle
-        // FIXED: Corrected sensor zone positioning for all directions
         match vehicle.direction {
             Direction::North => SensorZone {
                 position: Vector2::new(
                     vehicle.position.x - width / 2.0,
-                    vehicle.position.y + vehicle.length / 2.0,  // North moves in +Y, sensor extends from front
+                    vehicle.position.y + vehicle.length / 2.0,
                 ),
                 width,
                 height: length,
@@ -26,14 +22,14 @@ impl SensorZone {
             Direction::South => SensorZone {
                 position: Vector2::new(
                     vehicle.position.x - width / 2.0,
-                    vehicle.position.y - vehicle.length / 2.0 - length,  // South moves in -Y, sensor extends from front
+                    vehicle.position.y - vehicle.length / 2.0 - length,
                 ),
                 width,
                 height: length,
             },
             Direction::East => SensorZone {
                 position: Vector2::new(
-                    vehicle.position.x + vehicle.length / 2.0,  // East moves in +X, use length not width
+                    vehicle.position.x + vehicle.length / 2.0,
                     vehicle.position.y - width / 2.0,
                 ),
                 width: length,
@@ -41,7 +37,7 @@ impl SensorZone {
             },
             Direction::West => SensorZone {
                 position: Vector2::new(
-                    vehicle.position.x - vehicle.length / 2.0 - length,  // West moves in -X, use length not width
+                    vehicle.position.x - vehicle.length / 2.0 - length,
                     vehicle.position.y - width / 2.0,
                 ),
                 width: length,
@@ -50,20 +46,17 @@ impl SensorZone {
         }
     }
 
-    /// Check if this sensor zone intersects with another vehicle's hitbox
     pub fn intersects_vehicle(&self, other: &Vehicle) -> bool {
         let sx = self.position.x;
         let sy = self.position.y;
         let sw = self.width;
         let sh = self.height;
 
-        // Other vehicle's bounding box (position is center)
         let ox = other.position.x - other.width / 2.0;
         let oy = other.position.y - other.length / 2.0;
         let ow = other.width;
         let oh = other.length;
 
-        // Rectangle intersection test
         sx < ox + ow && sx + sw > ox && sy < oy + oh && sy + sh > oy
     }
 }
@@ -99,8 +92,8 @@ pub enum VehicleState {
     Waiting,
     Moving,
     Stopped,
-    Yielding,     // Added for conflict resolution
-    AlwaysMoving, // For right-turn vehicles that don't create intersection conflicts
+    Yielding,
+    AlwaysMoving,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -172,7 +165,6 @@ impl Direction {
 }
 
 impl Vehicle {
-    /// Gets the current waypoint the vehicle is heading towards
     pub fn get_current_waypoint(&self) -> Option<Vector2<f32>> {
         if self.path_index < self.path.len() {
             Some(self.path[self.path_index])
@@ -181,26 +173,21 @@ impl Vehicle {
         }
     }
 
-    /// Advances to the next waypoint
     pub fn advance_waypoint(&mut self) {
         if self.path_index < self.path.len() {
             self.path_index += 1;
         }
     }
 
-    /// Checks if the vehicle has reached its destination
     pub fn has_reached_destination(&self) -> bool {
         self.path_index >= self.path.len()
     }
 
-    /// Sets a new path for the vehicle
     pub fn set_path(&mut self, path: Vec<Vector2<f32>>) {
         self.path = path;
         self.path_index = 0;
     }
 
-    /// Check for vehicles ahead using forward-looking sensor zone
-    /// Returns (detected, closest_distance) tuple
     pub fn check_ahead(&self, all_vehicles: &[Vehicle], sensor_length: f32, sensor_width: f32) -> (bool, Option<f32>) {
         let sensor = SensorZone::new(self, sensor_length, sensor_width);
         
@@ -213,8 +200,6 @@ impl Vehicle {
             }
 
             if sensor.intersects_vehicle(other) {
-                // SIMPLIFIED: Just calculate the gap between vehicles based on direction
-                // This is the actual clear space between the vehicles
                 let gap_distance = match self.direction {
                     Direction::North => {
                         // North moves in +Y direction
