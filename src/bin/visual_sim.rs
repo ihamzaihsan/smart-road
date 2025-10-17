@@ -1,106 +1,211 @@
-use sdl2::event::Event;
-use std::time::Duration;
+use smart_road::core::Simulation;
+use smart_road::resources::{StatsSummary, FIXED_STEP};
+use smart_road::PROJECT_NAME;
+use std::path::PathBuf;
 
-use smart_road::core::Game;
-use smart_road::rendering::Renderer;
-use smart_road::resources::StatsSummary;
-
-fn display_stats(summary: StatsSummary) {
-    let format_value = |value: Option<f32>| -> String {
-        value
-            .map(|v| format!("{:.2}", v))
-            .unwrap_or_else(|| "N/A".to_string())
-    };
-
-    let stats_message = format!(
-        "Simulation complete!\n\nTotal vehicles passed: {}\nMax speed: {}\nMin speed: {}\nLongest travel time: {} seconds\nShortest travel time: {} seconds\nClose calls: {}\nCollisions: {}",
-        summary.total_vehicles_passed,
-        format_value(summary.max_speed),
-        format_value(summary.min_speed),
-        format_value(summary.max_travel_time),
-        format_value(summary.min_travel_time),
-        summary.close_calls,
-        summary.collisions,
-    );
-
-    let _ = sdl2::messagebox::show_simple_message_box(
-        sdl2::messagebox::MessageBoxFlag::INFORMATION,
-        "Smart Intersection Statistics",
-        &stats_message,
-        None,
-    );
+struct Options {
+    headless: bool,
+    demo: bool,
+    drain: bool,
+    no_dialog: bool,
+    duration: Option<f64>,
+    seed: u64,
+    spawn_interval: f64,
+    csv: Option<PathBuf>,
 }
 
-fn main() -> Result<(), String> {
-    // Initialize debug logging
-    smart_road::core::vehicle_update::init_debug_log();
-    
-    // Initialize SDL2
-    let sdl_context = sdl2::init()?;
-    let video_subsystem = sdl_context.video()?;
-    let _image_context = sdl2::image::init(sdl2::image::InitFlag::PNG)?;
+impl Options {
+    fn parse() -> Result<Option<Self>, String> {
+        let mut options = Self {
+            headless: false,
+            demo: false,
+            drain: false,
+            no_dialog: false,
+            duration: None,
+            seed: 42,
+            spawn_interval: 1.5,
+            csv: None,
+        };
+        let args = std::env::args().skip(1);
+        for argument in args {
+            match argument.as_str() {
+                "--help" | "-h" => {
+                    println!("{PROJECT_NAME}\n\nUsage: cargo run -- [OPTIONS]\n\n  --demo                  Start automatic traffic in the desktop app\n  --help                  Show this help\n\nDesktop: arrows spawn from each approach; R toggles automatic traffic; Esc shows statistics.");
+                    return Ok(None);
+                }
+                "--demo" => options.demo = true,
+                _ => return Err(format!("unknown option: {argument}; use --help")),
+            }
+        }
+        if options
+            .duration
+            .is_some_and(|v| !v.is_finite() || !(0.1..=86400.0).contains(&v))
+        {
+            return Err("duration must be between 0.1 and 86400 seconds".into());
+        }
+        if options.drain && !options.headless {
+            return Err("--drain requires --headless".into());
+        }
+        if !options.spawn_interval.is_finite() || !(0.05..=60.0).contains(&options.spawn_interval) {
+            return Err("spawn interval must be between 0.05 and 60 seconds".into());
+        }
+        Ok(Some(options))
+    }
+}
 
-    // Create window
-    let window = video_subsystem
-        .window("Smart Road Simulator", 1200, 800)
+fn run_headless(options: &Options) -> Result<StatsSummary, String> {
+    let mut simulation = Simulation::new(options.seed, options.spawn_interval)?;
+    simulation.toggle_automatic();
+    let ticks = (options.duration.unwrap_or(60.0) / FIXED_STEP).ceil() as u64;
+    for _ in 0..ticks {
+        simulation.tick();
+    }
+    if options.drain {
+        simulation.automatic = false;
+        let deadline = simulation.time + 600.0;
+        while !simulation.vehicles.is_empty() {
+            if simulation.time >= deadline {
+                return Err("traffic failed to drain within 600 simulated seconds".into());
+            }
+            simulation.tick();
+        }
+    }
+    Ok(simulation.summary())
+}
+
+#[cfg(feature = "graphics")]
+fn run_desktop(options: &Options) -> Result<StatsSummary, String> {
+    use sdl2::{event::Event, keyboard::Keycode};
+    use smart_road::{components::Direction, rendering::Renderer};
+    use std::time::{Duration, Instant};
+
+    let sdl = sdl2::init()?;
+    let video = sdl.video()?;
+    let window = video
+        .window(PROJECT_NAME, 1200, 800)
         .position_centered()
+        .resizable()
         .build()
         .map_err(|e| e.to_string())?;
-
-    // Create canvas
-    let canvas = window
-        .into_canvas()
-        .accelerated()
-        .build()
+    // SDL chooses a suitable renderer; software-only environments are supported.
+    let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
+    canvas
+        .set_logical_size(1200, 800)
         .map_err(|e| e.to_string())?;
-
-    // Create texture creator
     let texture_creator = canvas.texture_creator();
-
-    // Create renderer
-    let mut renderer = Renderer::new(canvas, &texture_creator);
-
-    // Create game instance
-    let mut game = Game::new(&texture_creator)?;
-
-    // Event pump for handling events
-    let mut event_pump = sdl_context.event_pump()?;
-
-    println!("Smart Road Simulator - SDL2 Version");
-    println!("Controls:");
-    println!("  Arrow Keys: Manual vehicle spawning");
-    println!("  R Key: Toggle automatic spawning");
-    println!("  ESC or close window: Quit");
-
-    // Main game loop
+    let mut renderer = Renderer::new(canvas, &texture_creator)?;
+    let mut simulation = Simulation::new(options.seed, options.spawn_interval)?;
+    if options.demo {
+        simulation.toggle_automatic();
+    }
+    let mut event_pump = sdl.event_pump()?;
+    let mut last_frame = Instant::now();
+    let mut accumulator = 0.0;
     'running: loop {
-        // Collect events
-        let events: Vec<Event> = event_pump.poll_iter().collect();
-
-        // Update game logic
-        if !game.update(&events) {
-            break 'running;
+        let frame_start = Instant::now();
+        // Ignore long OS stalls; never integrate one giant movement step.
+        accumulator += frame_start
+            .duration_since(last_frame)
+            .as_secs_f64()
+            .min(0.25);
+        last_frame = frame_start;
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => break 'running,
+                Event::KeyDown {
+                    keycode: Some(key),
+                    repeat: false,
+                    ..
+                } => match key {
+                    Keycode::Up => {
+                        simulation.spawn(Direction::North);
+                    }
+                    Keycode::Down => {
+                        simulation.spawn(Direction::South);
+                    }
+                    Keycode::Right => {
+                        simulation.spawn(Direction::East);
+                    }
+                    Keycode::Left => {
+                        simulation.spawn(Direction::West);
+                    }
+                    Keycode::R => simulation.toggle_automatic(),
+                    _ => {}
+                },
+                _ => {}
+            }
         }
-
-        if let Some(summary) = game.take_stats_summary() {
-            display_stats(summary);
+        while accumulator >= FIXED_STEP {
+            simulation.tick();
+            accumulator -= FIXED_STEP;
+            if options
+                .duration
+                .is_some_and(|duration| simulation.time >= duration)
+            {
+                break 'running;
+            }
         }
-
-        // Render
-        if let Err(e) = game.render(&mut renderer) {
-            eprintln!("Render error: {}", e);
-            return Err(e);
+        renderer.render(&simulation)?;
+        if let Some(remaining) =
+            Duration::from_secs_f64(1.0 / 60.0).checked_sub(frame_start.elapsed())
+        {
+            std::thread::sleep(remaining);
         }
-
-        // Cap frame rate to ~60 FPS
-        std::thread::sleep(Duration::from_millis(16));
     }
-
-    println!("Smart Road Simulator shutting down...");
-
-    if let Some(summary) = game.take_stats_summary() {
-        display_stats(summary);
+    let summary = simulation.summary();
+    renderer.render(&simulation)?;
+    if !options.no_dialog {
+        if let Err(error) = sdl2::messagebox::show_simple_message_box(
+            sdl2::messagebox::MessageBoxFlag::INFORMATION,
+            &format!("{PROJECT_NAME} - Statistics"),
+            &summary.to_string(),
+            Some(renderer.window()),
+        ) {
+            eprintln!(
+                "Statistics dialog unavailable: {error}. Full statistics are printed to the terminal."
+            );
+        }
     }
+    Ok(summary)
+}
 
+fn run() -> Result<(), String> {
+    let Some(options) = Options::parse()? else {
+        return Ok(());
+    };
+    let summary = if options.headless {
+        run_headless(&options)?
+    } else {
+        #[cfg(feature = "graphics")]
+        {
+            run_desktop(&options)?
+        }
+        #[cfg(not(feature = "graphics"))]
+        {
+            return Err(
+                "desktop support is disabled; use --headless or build with --features graphics"
+                    .into(),
+            );
+        }
+    };
+    println!("{PROJECT_NAME}\nSeed: {}\n\n{summary}", options.seed);
+    if let Some(path) = options.csv {
+        std::fs::write(&path, summary.csv())
+            .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+    }
+    if summary.collisions > 0 || summary.close_calls > 0 {
+        return Err("the scenario recorded safety violations; see the statistics above".into());
+    }
     Ok(())
+}
+
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("SmartRoad: {error}");
+        std::process::exit(1);
+    }
 }

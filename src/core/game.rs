@@ -1,255 +1,154 @@
-use crate::components::{Direction, Vehicle};
-use crate::core::physics::ConflictCalendar;
-use crate::core::{intersection, spawning, vehicle_update, waypoints};
-use crate::input::InputSystem;
-use crate::rendering::Renderer;
-use crate::resources::{RoadConfig, SimulationConfig, StatsManager, StatsSummary, VehicleAssets};
-use crate::systems::{AutoSpawnTimer, SpawnManager};
-use sdl2::event::Event;
-use sdl2::image::LoadTexture;
-use sdl2::keyboard::Keycode;
-use sdl2::render::TextureCreator;
-use sdl2::video::WindowContext;
-use std::time::{Duration, Instant};
+use crate::components::{Direction, Vehicle, VehicleState};
+use crate::core::{
+    geometry::segment_distance, intersection::IntersectionManager, physics, waypoints::Track,
+};
+use crate::resources::*;
+use nalgebra::Vector2;
+use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 
-pub struct Game<'a> {
+/// The same fixed-step engine powers both the desktop and headless applications.
+pub struct Simulation {
     pub vehicles: Vec<Vehicle>,
-    pub spawn_manager: SpawnManager,
-    pub auto_spawn_timer: AutoSpawnTimer,
-    pub road_config: RoadConfig,
-    pub simulation_config: SimulationConfig,
-    pub vehicle_assets: VehicleAssets<'a>,
-    pub input_system: InputSystem,
-    pub last_update: Instant,
-    pub start_time: Instant,
-    pub conflict_calendar: ConflictCalendar,
-    last_auto_spawn_at: Instant,
-    min_auto_spawn_gap: Duration,
-    last_lane_used: std::collections::HashMap<Direction, usize>,
-    current_intersection_users: Vec<intersection::ActiveIntersectionUser>,
-    phase_manager: intersection::IntersectionPhaseManager,
-    stats_manager: StatsManager,
-    pending_exit: bool,
-    stats_ready: bool,
+    pub tracks: Vec<Track>,
+    pub automatic: bool,
+    pub time: f64,
+    pub intersection: IntersectionManager,
+    rng: StdRng,
+    stats: StatsManager,
+    tick_count: u64,
+    next_id: u64,
+    last_spawn: [Option<f64>; 4],
+    next_auto_spawn: f64,
+    spawn_interval: f64,
 }
-impl<'a> Game<'a> {
-    pub fn new(texture_creator: &'a TextureCreator<WindowContext>) -> Result<Self, String> {
-        let mut vehicle_assets = VehicleAssets::new();
-        let texture_names = vehicle_assets.texture_names.clone();
-        for texture_name in texture_names {
-            let texture_path = format!("assets/{}", texture_name);
-            let texture = texture_creator
-                .load_texture(&texture_path)
-                .map_err(|e| format!("Failed to load texture {}: {}", texture_path, e))?;
-            vehicle_assets.car_textures.push(texture);
+
+impl Simulation {
+    pub fn new(seed: u64, spawn_interval: f64) -> Result<Self, String> {
+        if !spawn_interval.is_finite() || !(0.05..=60.0).contains(&spawn_interval) {
+            return Err("spawn interval must be between 0.05 and 60 seconds".into());
         }
-        let now = Instant::now();
+        let tracks: Vec<Track> = Direction::ALL
+            .into_iter()
+            .flat_map(|direction| (0..3).map(move |lane| Track::new(direction, lane)))
+            .collect();
+        let intersection = IntersectionManager::new(&tracks);
         Ok(Self {
             vehicles: Vec::new(),
-            spawn_manager: SpawnManager::default(),
-            auto_spawn_timer: AutoSpawnTimer::default(),
-            road_config: RoadConfig::default(),
-            simulation_config: SimulationConfig::default(),
-            vehicle_assets,
-            input_system: InputSystem::new(),
-            last_update: now,
-            start_time: now,
-            conflict_calendar: ConflictCalendar::new(),
-            last_auto_spawn_at: now,
-            min_auto_spawn_gap: Duration::from_secs_f32(0.8),
-            last_lane_used: std::collections::HashMap::new(),
-            current_intersection_users: Vec::new(),
-            phase_manager: intersection::IntersectionPhaseManager::default(),
-            stats_manager: StatsManager::new(),
-            pending_exit: false,
-            stats_ready: false,
+            tracks,
+            automatic: false,
+            time: 0.0,
+            intersection,
+            rng: StdRng::seed_from_u64(seed),
+            stats: StatsManager::default(),
+            tick_count: 0,
+            next_id: 1,
+            last_spawn: [None; 4],
+            next_auto_spawn: spawn_interval,
+            spawn_interval,
         })
     }
 
-    pub fn update(&mut self, events: &[Event]) -> bool {
-        let current_time = Instant::now();
-        let delta_time = current_time.duration_since(self.last_update).as_secs_f32();
+    pub fn toggle_automatic(&mut self) {
+        self.automatic = !self.automatic;
+        self.next_auto_spawn = self.time + self.spawn_interval;
+    }
 
-        self.input_system.update(events);
-
-        let mut exit_requested = false;
-        for event in events {
-            match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => exit_requested = true,
-                _ => {}
-            }
-        }
-
-        if exit_requested {
-            self.pending_exit = true;
-            self.auto_spawn_timer.enabled = false;
-        }
-
-        // Handle spawning
-        self.handle_spawning(current_time);
-
-        // Update vehicles
-        let elapsed_seconds = current_time.duration_since(self.start_time).as_secs_f32();
-        self.update_all_vehicles(delta_time, elapsed_seconds);
-
-        self.last_update = current_time;
-        self.cleanup_vehicles(elapsed_seconds);
-
-        for vehicle in &self.vehicles {
-            self.stats_manager.observe_speed(vehicle.id, vehicle.speed);
-        }
-
-
-        // Allow immediate exit when requested
-        if self.pending_exit {
-            if self.stats_manager.has_results() && !self.stats_ready {
-                self.stats_ready = true;
-            }
+    /// A rejected request never changes the cooldown or moves existing vehicles.
+    pub fn spawn(&mut self, direction: Direction) -> bool {
+        let index = direction.index();
+        if self.vehicles.len() >= MAX_VEHICLES
+            || self.last_spawn[index].is_some_and(|last| self.time - last < SPAWN_COOLDOWN)
+        {
+            self.stats.record_rejection();
             return false;
         }
-
-        true
+        let mut lanes = [0, 1, 2];
+        lanes.shuffle(&mut self.rng);
+        for lane in lanes {
+            let track_index = index * 3 + lane;
+            let track = &self.tracks[track_index];
+            let (position, rotation) = track.pose(0.0);
+            if self
+                .vehicles
+                .iter()
+                .any(|v| (v.position - position).norm() < center_separation())
+            {
+                continue;
+            }
+            // Different styles have different acceleration and brake response.
+            let style = self.rng.gen_range(0..STYLE_COUNT);
+            let vehicle = Vehicle {
+                id: self.next_id,
+                track_index,
+                position,
+                rotation,
+                speed: 0.0,
+                progress: 0.0,
+                state: VehicleState::Approaching,
+                style,
+                acceleration: 100.0 + style as f32 * 15.0,
+                deceleration: 200.0 + style as f32 * 20.0,
+                detected_at: self.time,
+                waiting_time: 0.0,
+                admitted: false,
+            };
+            self.vehicles.push(vehicle);
+            self.next_id += 1;
+            self.last_spawn[index] = Some(self.time);
+            self.stats.record_spawn();
+            self.stats.observe_speed(0.0);
+            return true;
+        }
+        self.stats.record_rejection();
+        false
     }
 
-    fn handle_spawning(&mut self, current_time: Instant) {
-        if self.pending_exit {
-            return;
+    pub fn tick(&mut self) {
+        self.tick_count += 1;
+        self.time = self.tick_count as f64 * FIXED_STEP;
+        if self.automatic && self.time + 1e-9 >= self.next_auto_spawn {
+            let direction = Direction::ALL[self.rng.gen_range(0..4)];
+            self.spawn(direction);
+            // Advance the schedule even on rejection; never accumulate a burst.
+            self.next_auto_spawn += self.spawn_interval;
         }
-
-        // Handle keyboard spawning
-        if let Some((direction, lane_index, spawn_pos, route)) = spawning::handle_keyboard_spawning(
-            &self.input_system,
-            &mut self.spawn_manager,
-            &self.vehicles,
-            &self.road_config,
-            &mut self.last_lane_used,
-            current_time,
-            self.start_time,
-        ) {
-            let path = waypoints::generate_waypoints(
-                direction,
-                lane_index,
-                route,
-                spawn_pos,
-                &self.road_config,
-                &self.simulation_config,
-                &self.spawn_manager,
-            );
-            let vehicle = spawning::spawn_vehicle_at_position(
-                direction,
-                lane_index,
-                spawn_pos,
-                route,
-                path,
-                &mut self.spawn_manager,
-                &self.vehicle_assets,
-            );
-            self.stats_manager.observe_speed(vehicle.id, vehicle.speed);
-            self.vehicles.push(vehicle);
-        }
-
-        // Handle spawn toggle
-        spawning::handle_spawn_toggle(
-            &self.input_system,
-            &mut self.auto_spawn_timer,
-            &mut self.last_auto_spawn_at,
-        );
-
-        // Handle automatic spawning
-        if self.auto_spawn_timer.enabled {
-            if let Some((direction, lane_index, spawn_pos, route)) =
-                spawning::handle_automatic_spawning(
-                    &mut self.auto_spawn_timer,
-                    &mut self.spawn_manager,
-                    &self.vehicles,
-                    &self.road_config,
-                    &self.simulation_config,
-                    &mut self.last_lane_used,
-                    current_time,
-                    self.start_time,
-                    self.last_auto_spawn_at,
-                    self.min_auto_spawn_gap,
-                )
-            {
-                let path = waypoints::generate_waypoints(
-                    direction,
-                    lane_index,
-                    route,
-                    spawn_pos,
-                    &self.road_config,
-                    &self.simulation_config,
-                    &self.spawn_manager,
+        self.intersection.update(&mut self.vehicles, &self.tracks);
+        let previous: Vec<Vector2<f32>> = self.vehicles.iter().map(|v| v.position).collect();
+        physics::update_vehicles(&mut self.vehicles, &self.tracks, FIXED_STEP as f32);
+        for i in 0..self.vehicles.len() {
+            self.stats.observe_speed(self.vehicles[i].speed);
+            for j in (i + 1)..self.vehicles.len() {
+                // Relative swept motion detects violations between ticks, too.
+                let before = previous[i] - previous[j];
+                let after = self.vehicles[i].position - self.vehicles[j].position;
+                let distance = segment_distance(before, after, Vector2::zeros(), Vector2::zeros());
+                self.stats.observe_distance(
+                    self.vehicles[i].id,
+                    self.vehicles[j].id,
+                    distance,
+                    vehicle_radius() * 2.0,
+                    center_separation(),
                 );
-                let vehicle = spawning::spawn_vehicle_at_position(
-                    direction,
-                    lane_index,
-                    spawn_pos,
-                    route,
-                    path,
-                    &mut self.spawn_manager,
-                    &self.vehicle_assets,
-                );
-                self.stats_manager.observe_speed(vehicle.id, vehicle.speed);
-                self.vehicles.push(vehicle);
-                self.last_auto_spawn_at = current_time;
             }
         }
+        let waiting = self
+            .vehicles
+            .iter()
+            .filter(|v| v.state == VehicleState::Waiting)
+            .count();
+        self.stats
+            .observe_load(waiting, self.intersection.active_count());
+        self.vehicles.retain(|v| {
+            if v.progress >= self.tracks[v.track_index].length - 0.01 {
+                self.stats.record_exit(v, self.time);
+                false
+            } else {
+                true
+            }
+        });
     }
 
-    fn update_all_vehicles(&mut self, delta_time: f32, current_time: f32) {
-        // Priority-based intersection control with phase management
-        intersection::apply_priority_based_intersection_control(
-            &mut self.vehicles,
-            &mut self.current_intersection_users,
-            &mut self.phase_manager,
-            &self.road_config,
-            &self.spawn_manager,
-            delta_time,
-            current_time,
-            &mut self.stats_manager,
-        );
-
-        // Update vehicle physics and collision avoidance
-        vehicle_update::update_vehicles(
-            &mut self.vehicles,
-            &mut self.conflict_calendar,
-            &self.road_config,
-            delta_time,
-            current_time,
-            &mut self.stats_manager,
-        );
-    }
-
-    fn cleanup_vehicles(&mut self, current_time: f32) {
-        let exited = vehicle_update::cleanup_vehicles(
-            &mut self.vehicles,
-            self.simulation_config.cleanup_distance,
-        );
-        for id in exited {
-            self.stats_manager.record_vehicle_exit(id, current_time);
-        }
-    }
-
-    pub fn render(&mut self, renderer: &mut Renderer) -> Result<(), String> {
-        renderer.clear();
-        renderer.render_roads(&self.road_config)?;
-        renderer.render_vehicles(&self.vehicles, &self.vehicle_assets)?;
-        renderer.present();
-        Ok(())
-    }
-
-    pub fn take_stats_summary(&mut self) -> Option<StatsSummary> {
-        if self.stats_ready && self.stats_manager.has_results() {
-            self.stats_ready = false;
-            let summary = self.stats_manager.summary();
-            self.stats_manager.reset();
-            Some(summary)
-        } else {
-            None
-        }
+    pub fn summary(&self) -> StatsSummary {
+        self.stats.summary(self.time, self.vehicles.len())
     }
 }

@@ -1,58 +1,22 @@
-#[derive(Debug, Clone)]
-pub struct RoadConfig {
-    pub lane_width: f32,
-    pub dash_length: f32,
-    pub dash_gap: f32,
-    pub num_lanes: usize,
+/// Simulation units are pixels and seconds, not calibrated road measurements.
+pub const LANE_WIDTH: f32 = 50.0;
+pub const INTERSECTION_HALF: f32 = LANE_WIDTH * 3.0;
+pub const VEHICLE_WIDTH: f32 = 16.0;
+pub const VEHICLE_LENGTH: f32 = 32.0;
+pub const SAFETY_GAP: f32 = 10.0;
+pub const FIXED_STEP: f64 = 1.0 / 120.0;
+pub const SPAWN_COOLDOWN: f64 = 0.5;
+pub const MAX_VEHICLES: usize = 60;
+pub const CRUISE_SPEED: f32 = 180.0;
+pub const CROSSING_SPEED: f32 = 140.0;
+pub const TURN_SPEED: f32 = 90.0;
+pub const STYLE_COUNT: usize = 5;
+
+/// A circle enclosing the full sprite protects its corners throughout a turn.
+pub fn vehicle_radius() -> f32 {
+    (VEHICLE_WIDTH * VEHICLE_WIDTH + VEHICLE_LENGTH * VEHICLE_LENGTH).sqrt() * 0.5
 }
 
-impl Default for RoadConfig {
-    fn default() -> Self {
-        Self {
-            lane_width: 50.0,
-            dash_length: 20.0,
-            dash_gap: 15.0,
-            num_lanes: 3,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct SimulationConfig {
-    pub max_vehicles: usize,
-    pub spawn_cooldown: f64,
-    pub cleanup_distance: f32,
-    pub intersection_size: f32,
-    pub detection_distance: f32,
-}
-
-impl Default for SimulationConfig {
-    fn default() -> Self {
-        Self {
-            max_vehicles: 20,
-            spawn_cooldown: 3.0,
-            cleanup_distance: 650.0, // Larger than spawn distances
-            intersection_size: 300.0,
-            detection_distance: 550.0, // Increased to accommodate queue_spacing of 120
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct PhysicsConfig {
-    pub max_vehicle_speed: f32,
-    pub acceleration: f32,
-    pub deceleration: f32,
-    pub min_safety_distance: f32,
-}
-
-impl Default for PhysicsConfig {
-    fn default() -> Self {
-        Self {
-            max_vehicle_speed: 200.0,
-            acceleration: 200.0,
-            deceleration: 75.0,
-            min_safety_distance: 50.0,
-        }
-    }
+pub fn center_separation() -> f32 {
+    vehicle_radius() * 2.0 + SAFETY_GAP
 }

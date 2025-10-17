@@ -2,22 +2,16 @@
 name = "smart_road"
 version = "0.1.0"
 edition = "2021"
-authors = ["Your Name <you@example.com>"]
+rust-version = "1.88"
+repository = "https://github.com/ihamzaihsan/smart-road"
+description = "SmartRoad: Traffic Intersection Simulation — a deterministic, light-free traffic simulator"
 default-run = "visual_sim"
 
+[features]
+default = ["graphics"]
+graphics = ["dep:sdl2"]
+
 [dependencies]
-anyhow = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-log = "0.4"
-env_logger = "0.9"
 rand = "0.8"
-
-
-sdl2 = { version = "0.35", features = ["image", "ttf"] }
-
-
 nalgebra = "0.32"
-instant = "0.1"   
-
-[dev-dependencies]
-# Add test helpers here
+sdl2 = { version = "0.35", optional = true }

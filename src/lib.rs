@@ -1,11 +1,8 @@
+//! Deterministic traffic simulation with an optional SDL2 presentation layer.
 pub mod components;
 pub mod core;
-pub mod input;
+#[cfg(feature = "graphics")]
 pub mod rendering;
 pub mod resources;
-pub mod systems;
-pub mod utils;
 
-pub use components::*;
-pub use core::*;
-pub use resources::*;
+pub const PROJECT_NAME: &str = "SmartRoad: Traffic Intersection Simulation";
