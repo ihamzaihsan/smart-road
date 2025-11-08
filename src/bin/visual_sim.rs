@@ -26,14 +26,34 @@ impl Options {
             spawn_interval: 1.5,
             csv: None,
         };
-        let args = std::env::args().skip(1);
-        for argument in args {
+        let mut args = std::env::args().skip(1);
+        while let Some(argument) = args.next() {
             match argument.as_str() {
                 "--help" | "-h" => {
-                    println!("{PROJECT_NAME}\n\nUsage: cargo run -- [OPTIONS]\n\n  --demo                  Start automatic traffic in the desktop app\n  --help                  Show this help\n\nDesktop: arrows spawn from each approach; R toggles automatic traffic; Esc shows statistics.");
+                    println!("{PROJECT_NAME}\n\nUsage: cargo run -- [OPTIONS]\n\n  --demo                  Start automatic traffic in the desktop app\n  --seed NUMBER           Reproducible random seed (default: 42)\n  --help                  Show this help\n\nDesktop: arrows spawn from each approach; R toggles automatic traffic; Esc shows statistics.");
                     return Ok(None);
                 }
                 "--demo" => options.demo = true,
+                "--seed" => {
+                    let input = args
+                        .next()
+                        .ok_or_else(|| format!("missing value for {argument}"))?;
+                    match argument.as_str() {
+                        "--duration" => {
+                            options.duration = Some(input.parse().map_err(|_| "invalid duration")?)
+                        }
+                        "--seed" => {
+                            options.seed = input
+                                .parse()
+                                .map_err(|_| "seed must be an unsigned integer")?
+                        }
+                        "--spawn-interval" => {
+                            options.spawn_interval =
+                                input.parse().map_err(|_| "invalid spawn interval")?
+                        }
+                        _ => options.csv = Some(PathBuf::from(input)),
+                    }
+                }
                 _ => return Err(format!("unknown option: {argument}; use --help")),
             }
         }
