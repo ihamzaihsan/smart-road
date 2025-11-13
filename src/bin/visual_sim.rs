@@ -30,11 +30,11 @@ impl Options {
         while let Some(argument) = args.next() {
             match argument.as_str() {
                 "--help" | "-h" => {
-                    println!("{PROJECT_NAME}\n\nUsage: cargo run -- [OPTIONS]\n\n  --demo                  Start automatic traffic in the desktop app\n  --seed NUMBER           Reproducible random seed (default: 42)\n  --help                  Show this help\n\nDesktop: arrows spawn from each approach; R toggles automatic traffic; Esc shows statistics.");
+                    println!("{PROJECT_NAME}\n\nUsage: cargo run -- [OPTIONS]\n\n  --demo                  Start automatic traffic in the desktop app\n  --seed NUMBER           Reproducible random seed (default: 42)\n  --spawn-interval SEC    Automatic request interval: 0.05..60 (default: 1.5)\n  --help                  Show this help\n\nDesktop: arrows spawn from each approach; R toggles automatic traffic; Esc shows statistics.");
                     return Ok(None);
                 }
                 "--demo" => options.demo = true,
-                "--seed" => {
+                "--seed" | "--spawn-interval" => {
                     let input = args
                         .next()
                         .ok_or_else(|| format!("missing value for {argument}"))?;
