@@ -30,11 +30,12 @@ impl Options {
         while let Some(argument) = args.next() {
             match argument.as_str() {
                 "--help" | "-h" => {
-                    println!("{PROJECT_NAME}\n\nUsage: cargo run -- [OPTIONS]\n\n  --demo                  Start automatic traffic in the desktop app\n  --seed NUMBER           Reproducible random seed (default: 42)\n  --spawn-interval SEC    Automatic request interval: 0.05..60 (default: 1.5)\n  --duration SECONDS      Stop after 0.1..86400 simulated seconds\n  --no-dialog             Print desktop statistics without a modal dialog\n  --headless              Run automatic traffic without SDL or a window\n  --help                  Show this help\n\nDesktop: arrows spawn from each approach; R toggles automatic traffic; Esc shows statistics.");
+                    println!("{PROJECT_NAME}\n\nUsage: cargo run -- [OPTIONS]\n\n  --demo                  Start automatic traffic in the desktop app\n  --seed NUMBER           Reproducible random seed (default: 42)\n  --spawn-interval SEC    Automatic request interval: 0.05..60 (default: 1.5)\n  --duration SECONDS      Stop after 0.1..86400 simulated seconds\n  --no-dialog             Print desktop statistics without a modal dialog\n  --headless              Run automatic traffic without SDL or a window\n  --drain                 Finish active vehicles after a headless run\n  --help                  Show this help\n\nDesktop: arrows spawn from each approach; R toggles automatic traffic; Esc shows statistics.");
                     return Ok(None);
                 }
                 "--headless" => options.headless = true,
                 "--demo" => options.demo = true,
+                "--drain" => options.drain = true,
                 "--no-dialog" => options.no_dialog = true,
                 "--duration" | "--seed" | "--spawn-interval" => {
                     let input = args
