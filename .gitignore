@@ -2,7 +2,6 @@
 /target
 **/*.rs.bk
 **/*.swp
-Cargo.lock
 
 # assets - allow car sprites but ignore large asset files
 /assets/*.large
