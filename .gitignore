@@ -3,9 +3,11 @@
 **/*.rs.bk
 **/*.swp
 
-# assets - allow car sprites but ignore large asset files
-/assets/*.large
-/assets/temp/
-
 # vscode
 .vscode/
+
+# Generated output and native runtime libraries
+/logs/
+*.dll
+*.lib
+*.csv
