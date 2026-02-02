@@ -25,3 +25,5 @@ jobs:
           components: rustfmt, clippy
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --no-default-features --all-targets -- -D warnings
+      - name: Run default traffic and drain every accepted vehicle
+        run: cargo run --locked --release --no-default-features -- --headless --duration 120 --seed 42 --drain
