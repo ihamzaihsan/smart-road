@@ -27,3 +27,5 @@ jobs:
       - run: cargo clippy --locked --no-default-features --all-targets -- -D warnings
       - name: Run default traffic and drain every accepted vehicle
         run: cargo run --locked --release --no-default-features -- --headless --duration 120 --seed 42 --drain
+      - name: Run saturated traffic and drain every accepted vehicle
+        run: cargo run --locked --release --no-default-features -- --headless --duration 120 --seed 7 --spawn-interval 0.05 --drain
