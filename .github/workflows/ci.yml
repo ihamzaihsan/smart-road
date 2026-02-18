@@ -36,7 +36,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
+        os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -44,6 +44,17 @@ jobs:
         with:
           toolchain: 1.88.0
           components: clippy
+      - name: Install precompiled Windows SDL
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'SDL2-devel-2.28.5-VC.zip'
+          $destination = Join-Path $env:RUNNER_TEMP 'smartroad-sdl'
+          Invoke-WebRequest 'https://github.com/libsdl-org/SDL/releases/download/release-2.28.5/SDL2-devel-2.28.5-VC.zip' -OutFile $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath $destination
+          $libraryDir = Join-Path $destination 'SDL2-2.28.5/lib/x64'
+          "SDL2_LIB_DIR=$libraryDir" >> $env:GITHUB_ENV
+          $libraryDir >> $env:GITHUB_PATH
       - name: Install Linux SDL and display tools
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libsdl2-dev xvfb
@@ -52,3 +63,6 @@ jobs:
       - name: Exercise Linux X11 rendering
         if: runner.os == 'Linux'
         run: xvfb-run -a env SDL_VIDEODRIVER=x11 cargo run --locked --release -- --demo --duration 3 --no-dialog
+      - name: Exercise native Windows rendering
+        if: runner.os == 'Windows'
+        run: cargo run --locked --release -- --demo --duration 3 --no-dialog
