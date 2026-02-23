@@ -36,7 +36,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -58,11 +58,16 @@ jobs:
       - name: Install Linux SDL and display tools
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libsdl2-dev xvfb
+      - name: Install macOS SDL
+        if: runner.os == 'macOS'
+        run: |
+          brew install sdl2
+          echo "LIBRARY_PATH=$(brew --prefix)/lib" >> "$GITHUB_ENV"
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo build --locked --release
       - name: Exercise Linux X11 rendering
         if: runner.os == 'Linux'
         run: xvfb-run -a env SDL_VIDEODRIVER=x11 cargo run --locked --release -- --demo --duration 3 --no-dialog
-      - name: Exercise native Windows rendering
-        if: runner.os == 'Windows'
+      - name: Exercise native Windows or macOS rendering
+        if: runner.os != 'Linux'
         run: cargo run --locked --release -- --demo --duration 3 --no-dialog
