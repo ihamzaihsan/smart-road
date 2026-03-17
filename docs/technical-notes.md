@@ -51,3 +51,9 @@ flowchart LR
     Metrics --> Output[SDL display or headless report / CSV]
 ```
 
+## Statistics
+
+Required metrics cover completed vehicles, maximum/minimum speed, longest/shortest travel time and close calls. Additional metrics include collisions, mean travel time, mean stopped waiting time, throughput, distance travelled by completed vehicles, peak stopped queue, concurrent reservations, rejected requests and active vehicles.
+
+Speed includes startup and stopped samples, so the minimum is normally zero. Travel time begins when the controller detects a vehicle at spawning and ends after it fully leaves the canvas. Waiting time counts ticks spent stopped before admission. Means and travel-time extrema use completed vehicles only; empty samples display `N/A`. Throughput is completed vehicles divided by total simulated time, including draining when requested.
+
