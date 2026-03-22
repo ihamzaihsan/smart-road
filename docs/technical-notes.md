@@ -57,3 +57,21 @@ Required metrics cover completed vehicles, maximum/minimum speed, longest/shorte
 
 Speed includes startup and stopped samples, so the minimum is normally zero. Travel time begins when the controller detects a vehicle at spawning and ends after it fully leaves the canvas. Waiting time counts ticks spent stopped before admission. Means and travel-time extrema use completed vehicles only; empty samples display `N/A`. Throughput is completed vehicles divided by total simulated time, including draining when requested.
 
+## Verified results
+
+Development checkpoint (commit date): **22 March 2026**.
+
+Recorded checks used Windows x64, Rust 1.88.0 and native SDL2 2.28.5:
+
+| Scenario | Completed / accepted | Close calls | Collisions | Peak stopped queue |
+| --- | ---: | ---: | ---: | ---: |
+| Seed 42, 120 seconds, 1.5-second interval, drained | 80 / 80 | 0 | 0 | 5 |
+| Seed 7, 120 seconds, 0.05-second interval, drained | 223 / 223 | 0 | 0 | 56 |
+
+These are reproducible scenario results, not a proof for every possible workload. Saturation deliberately creates congestion; admission limits reject excess demand rather than claiming unlimited throughput.
+
+Eight temporary verification checks passed, including 100 manual scenarios covering all twelve routes, 40 default/saturated seeded runs, bounded acceleration and braking, deterministic results, configuration validation, reservation retention and encounter counting. The actual Windows desktop loop was also exercised with all four arrows, spam requests, `R`, Escape and empty-window close; both exit paths displayed native statistics dialogs. The screenshot in the README was captured from the real renderer.
+
+Linux x64 was also verified under Ubuntu 26.04.1 / WSL2 with Rust 1.88.0 and system SDL2 2.32.10. Both headless scenarios above matched the Windows results. Native SDL rendered successfully with dummy and X11 video drivers; X11 used a virtual display.
+
+Temporary verification code was removed after use. CI is configured for headless scenarios and native SDL builds/runtime on Windows, Linux and macOS, and passed local `actionlint` validation. Windows uses precompiled SDL2, Linux uses its system package, and macOS uses Homebrew. Remote CI execution and macOS runtime remain pending because the changes are being kept local.
