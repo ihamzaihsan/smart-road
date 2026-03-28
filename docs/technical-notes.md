@@ -75,3 +75,21 @@ Eight temporary verification checks passed, including 100 manual scenarios cover
 Linux x64 was also verified under Ubuntu 26.04.1 / WSL2 with Rust 1.88.0 and system SDL2 2.32.10. Both headless scenarios above matched the Windows results. Native SDL rendered successfully with dummy and X11 video drivers; X11 used a virtual display.
 
 Temporary verification code was removed after use. CI is configured for headless scenarios and native SDL builds/runtime on Windows, Linux and macOS, and passed local `actionlint` validation. Windows uses precompiled SDL2, Linux uses its system package, and macOS uses Homebrew. Remote CI execution and macOS runtime remain pending because the changes are being kept local.
+
+## Code map
+
+| Path | Responsibility |
+| --- | --- |
+| `src/bin/visual_sim.rs` | CLI validation, headless runner, SDL events and fixed-step desktop loop |
+| `src/core/game.rs` | Seeded spawning, simulation orchestration and vehicle lifecycle |
+| `src/core/intersection.rs` | Spatial conflict matrix and reservation scheduler |
+| `src/core/waypoints.rs` | Immutable lane routes, curves and position/heading lookup |
+| `src/core/physics.rs` | Speed targets, braking and path-distance integration |
+| `src/core/geometry.rs` | Point/segment and segment/segment geometry |
+| `src/components/` | Direction, route, state and vehicle data |
+| `src/resources/` | Constants, metrics and original sprite generation |
+| `src/rendering/` | SDL roads, cars, controls and live dashboard |
+| `build.rs` | Optional `SDL2_LIB_DIR` support for installed SDL2 libraries |
+| `.github/workflows/ci.yml` | Build, lint and runtime checks across three operating systems |
+
+The application has three direct dependencies: `rand 0.8`, `nalgebra 0.32`, and optional `sdl2 0.35`. `Cargo.lock` records the resolved versions. The simulation has no rendering dependency when built with `--no-default-features`.
