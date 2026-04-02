@@ -93,3 +93,9 @@ Temporary verification code was removed after use. CI is configured for headless
 | `.github/workflows/ci.yml` | Build, lint and runtime checks across three operating systems |
 
 The application has three direct dependencies: `rand 0.8`, `nalgebra 0.32`, and optional `sdl2 0.35`. `Cargo.lock` records the resolved versions. The simulation has no rendering dependency when built with `--no-default-features`.
+
+## Scope and tradeoffs
+
+This is an educational simulation of cooperative autonomous vehicles with perfect route and position knowledge. It does not model pedestrians, emergency priorities, communication failure, sensor uncertainty, calibrated road dynamics or real-world safety certification. The whole-route reservation policy favors a readable safety model over maximum intersection throughput. Pairwise monitoring is O(n²), bounded by the 60-vehicle limit; geometric route conflicts are computed once at startup.
+
+The desktop view uses a fixed 1200 × 800 logical canvas, letterboxed on resize. Rendering has a 60 FPS cap rather than a guaranteed frame rate. No retained regression test suite is included; repeatable headless commands and the validation record support manual verification.
