@@ -40,6 +40,15 @@ $env:SDL2_LIB_DIR = "C:\SDL2\lib\x64"
 $env:PATH = "$env:SDL2_LIB_DIR;" + $env:PATH
 ```
 
+**Git Bash**
+
+```bash
+export SDL2_LIB_DIR="C:/SDL2/lib/x64"
+export PATH="/c/SDL2/lib/x64:$PATH"
+```
+
+Git Bash uses `/c/SDL2` for `C:\SDL2` in `PATH`; `SDL2_LIB_DIR` uses a Windows-compatible path for Cargo.
+
 Use your actual installation path. `SDL2_LIB_DIR` must contain `SDL2.lib`; `PATH` must include the matching `SDL2.dll`. You can also save these settings in Windows Environment Variables and open a new terminal. For a copied desktop executable, place the DLL beside it. The project uses the precompiled SDL2 library with your existing Rust toolchain.
 
 **Linux (Ubuntu / Debian)**
