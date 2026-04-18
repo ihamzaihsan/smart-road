@@ -51,6 +51,21 @@ Git Bash uses `/c/SDL2` for `C:\SDL2` in `PATH`; `SDL2_LIB_DIR` uses a Windows-c
 
 Use your actual installation path. `SDL2_LIB_DIR` must contain `SDL2.lib`; `PATH` must include the matching `SDL2.dll`. You can also save these settings in Windows Environment Variables and open a new terminal. For a copied desktop executable, place the DLL beside it. The project uses the precompiled SDL2 library with your existing Rust toolchain.
 
+Verify the installation in the same terminal before running the app:
+
+**PowerShell**
+
+```powershell
+if (Test-Path -LiteralPath "$env:SDL2_LIB_DIR\SDL2.lib" -PathType Leaf) {
+    Write-Output "SDL2.lib found"
+} else {
+    Write-Error "SDL2.lib missing: check SDL2_LIB_DIR"
+}
+where.exe SDL2.dll
+```
+
+The first check should print `SDL2.lib found`; the second should show the DLL's location. If either check fails, confirm the extraction folder and update `SDL2_LIB_DIR` or `PATH`. The DLL should come from the same x64 SDL2 package as the library. These checks confirm file availability; `cargo run --bin visual_sim` verifies that the app builds and launches.
+
 **Linux (Ubuntu / Debian)**
 
 ```bash
