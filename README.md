@@ -64,6 +64,13 @@ if (Test-Path -LiteralPath "$env:SDL2_LIB_DIR\SDL2.lib" -PathType Leaf) {
 where.exe SDL2.dll
 ```
 
+**Git Bash**
+
+```bash
+test -f "$SDL2_LIB_DIR/SDL2.lib" && echo "SDL2.lib found"
+which SDL2.dll
+```
+
 The first check should print `SDL2.lib found`; the second should show the DLL's location. If either check fails, confirm the extraction folder and update `SDL2_LIB_DIR` or `PATH`. The DLL should come from the same x64 SDL2 package as the library. These checks confirm file availability; `cargo run --bin visual_sim` verifies that the app builds and launches.
 
 **Linux (Ubuntu / Debian)**
